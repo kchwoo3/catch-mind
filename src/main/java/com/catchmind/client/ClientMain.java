@@ -12,6 +12,13 @@ import javax.swing.JOptionPane;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.io.BufferedWriter;
+import java.io.OutputStreamWriter;
+import javax.swing.JList;
+import javax.swing.JScrollPane;
 
 public class ClientMain {
     public static void main(String[] args) {
@@ -59,12 +66,64 @@ public class ClientMain {
                 System.out.println("포트 = " + port);
                 System.out.println("닉네임 = " + nickname);
                 
+                JList<String> roomList = new JList<>();
+                
                 new Thread(() -> {
                     try (Socket socket = new Socket()) {
                         socket.connect(new InetSocketAddress(ip, port), 3000);
                         System.out.println("TCP 연결 성공");
+                        socket.setSoTimeout(3000);
+
+                        BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8)
+                        );
+                        BufferedWriter writer = new BufferedWriter(
+                        	    new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8)
+                        	);
+
+                        	writer.write("LOGIN|" + nickname + "\n");
+                        	writer.flush();
+                        String response = reader.readLine();
+                        System.out.println("서버 응답 = " + response);
+                        if ("LOGIN_OK".equals(response)) {
+                            SwingUtilities.invokeLater(() -> {
+                            	JPanel lobbyPanel = new JPanel(new BorderLayout());
+                            	lobbyPanel.add(new JLabel(nickname + "님, 대기실입니다."), BorderLayout.NORTH);
+                            	lobbyPanel.add(new JScrollPane(roomList), BorderLayout.CENTER);
+
+                                frame.setContentPane(lobbyPanel);
+                                frame.setTitle("낙서한판 대기실");
+                                frame.revalidate();
+                                frame.repaint();
+                            });
+                            writer.write("LIST_ROOMS\n");
+                            writer.flush();
+
+                            String roomResponse = reader.readLine();
+                            System.out.println("방 목록 응답 = " + roomResponse);
+                            
+                            if (roomResponse == null) {
+                                System.out.println("방 목록을 받기 전에 연결이 종료됐습니다.");
+                                return;
+                            }
+
+                            String[] parts = roomResponse.split("\\|", -1);
+
+                            if (!"ROOMS".equals(parts[0]) || parts.length % 2 == 0) {
+                                System.out.println("방 목록 응답 형식 오류 = " + roomResponse);
+                                return;
+                            }
+
+                            String[] roomNames = new String[(parts.length - 1) / 2];
+
+                            for (int i = 0; i < roomNames.length; i++) {
+                                roomNames[i] = parts[i * 2 + 2];
+                            }
+
+                            SwingUtilities.invokeLater(() -> roomList.setListData(roomNames));
+                        }
                     } catch (IOException ex) {
-                        System.out.println("TCP 연결 실패 = " + ex.getMessage());
+                        System.out.println("통신 실패 = " + ex.getMessage());
                     }
                 }).start();
             });
