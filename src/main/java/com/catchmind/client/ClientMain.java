@@ -39,7 +39,7 @@ public class ClientMain {
             JPanel panel = new JPanel(new GridLayout(3, 2, 15, 15));
 
             JTextField ipField = new JTextField("127.0.0.1", 12);
-            JTextField portField = new JTextField("9999", 12);
+            JTextField portField = new JTextField("5000", 12);
             JTextField nicknameField = new JTextField(12);
 
             panel.add(new JLabel("서버 IP"));
