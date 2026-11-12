@@ -65,7 +65,11 @@ public class ClientHandler implements Runnable {
                 } else {
                     this.userId = assignedId;
                     this.nickname = requestedNickname;
+
                     sendMessage("LOGIN_OK");
+
+                    
+
                     System.out.println("[Server] 로그인 성공: ID=" + userId + ", Nickname=" + nickname);
                 }
             }
