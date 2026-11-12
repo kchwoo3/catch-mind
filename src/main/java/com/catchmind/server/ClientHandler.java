@@ -11,15 +11,17 @@ import java.nio.charset.StandardCharsets;
 public class ClientHandler implements Runnable {
     private final Socket socket;
     private final SessionManager sessionManager;
+    private final ServerMain serverGui;
     private BufferedReader in;
     private PrintWriter out;
 
     private int userId = -1;
     private String nickname = null;
 
-    public ClientHandler(Socket socket, SessionManager sessionManager) {
+    public ClientHandler(Socket socket, SessionManager sessionManager, ServerMain serverGui) {
         this.socket = socket;
         this.sessionManager = sessionManager;
+        this.serverGui = serverGui;
     }
 
     @Override
@@ -68,8 +70,9 @@ public class ClientHandler implements Runnable {
 
                     sendMessage("LOGIN_OK");
 
-                    
-
+                    if (serverGui != null) {
+                        serverGui.appendLog(nickname + "님이 입장했습니다.");
+                    }
                     System.out.println("[Server] 로그인 성공: ID=" + userId + ", Nickname=" + nickname);
                 }
             }
@@ -92,7 +95,12 @@ public class ClientHandler implements Runnable {
     }
 
     private void cleanup() {
-        sessionManager.removeUser(this.nickname);
+        if (this.nickname != null) {
+            sessionManager.removeUser(this.nickname);
+            if (serverGui != null) {
+                serverGui.appendLog(this.nickname + "님이 퇴장했습니다.");
+            }
+        }
         try {
             if (in != null) in.close();
             if (out != null) out.close();

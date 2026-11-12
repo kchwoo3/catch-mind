@@ -95,7 +95,7 @@ public class ServerMain extends JFrame {
                     Socket clientSocket = serverSocket.accept();
                     appendLog("Client connected: " + clientSocket.getRemoteSocketAddress());
 
-                    ClientHandler handler = new ClientHandler(clientSocket, sessionManager);
+                    ClientHandler handler = new ClientHandler(clientSocket, sessionManager, this);
                     Thread clientThread = new Thread(handler);
                     clientThread.start();
                 }
