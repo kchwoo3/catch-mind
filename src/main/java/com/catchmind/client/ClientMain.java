@@ -21,6 +21,7 @@ import javax.swing.JList;
 import javax.swing.JScrollPane;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.awt.Dimension;
 
 public class ClientMain {
 	private record RoomInfo(String id, String name) {
@@ -33,7 +34,7 @@ public class ClientMain {
     	SwingUtilities.invokeLater(() -> {
             JFrame frame = new JFrame("낙서한판 로그인");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            frame.setSize(360, 220);
+            frame.setSize(540, 330);
             frame.setLocationRelativeTo(null);
             JPanel panel = new JPanel(new GridLayout(3, 2, 15, 15));
 
@@ -102,6 +103,15 @@ public class ClientMain {
                             	JPanel lobbyPanel = new JPanel(new BorderLayout());
                             	lobbyPanel.add(new JLabel(nickname + "님, 대기실입니다."), BorderLayout.NORTH);
                             	lobbyPanel.add(new JScrollPane(roomList), BorderLayout.CENTER);
+                            	
+                            	JList<String> lobbyUserList = new JList<>(new String[] { nickname });
+
+                            	JPanel lobbyUsersPanel = new JPanel(new BorderLayout());
+                            	lobbyUsersPanel.add(new JLabel("접속자 목록"), BorderLayout.NORTH);
+                            	lobbyUsersPanel.add(new JScrollPane(lobbyUserList), BorderLayout.CENTER);
+                            	lobbyUsersPanel.setPreferredSize(new Dimension(120, 0));
+
+                            	lobbyPanel.add(lobbyUsersPanel, BorderLayout.EAST);
                             	refreshButton.addActionListener(refreshEvent -> {
                             	    refreshButton.setEnabled(false);
 
@@ -175,6 +185,8 @@ public class ClientMain {
 
                                 frame.setContentPane(lobbyPanel);
                                 frame.setTitle("낙서한판 대기실");
+                                frame.setSize(1080, 660);
+                                frame.setLocationRelativeTo(null);
                                 frame.addWindowListener(new WindowAdapter() {
                                     @Override
                                     public void windowClosing(WindowEvent event) {
@@ -207,6 +219,8 @@ public class ClientMain {
 
                                         frame.setContentPane(roomPanel);
                                         frame.setTitle("낙서한판 - 방 " + roomId);
+                                        frame.setSize(1080, 660);
+                                        frame.setLocationRelativeTo(null);
                                         frame.revalidate();
                                         frame.repaint();
                                     });
