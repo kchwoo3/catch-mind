@@ -23,6 +23,12 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 
 public class ClientMain {
+	private record RoomInfo(String id, String name) {
+	    @Override
+	    public String toString() {
+	        return name;
+	    }
+	}
     public static void main(String[] args) {
     	SwingUtilities.invokeLater(() -> {
             JFrame frame = new JFrame("낙서한판 로그인");
@@ -68,7 +74,7 @@ public class ClientMain {
                 System.out.println("포트 = " + port);
                 System.out.println("닉네임 = " + nickname);
                 
-                JList<String> roomList = new JList<>();
+                JList<RoomInfo> roomList = new JList<>();
 
                 JButton refreshButton = new JButton("새로고침");
                 refreshButton.setEnabled(false);
@@ -109,7 +115,63 @@ public class ClientMain {
                             	    }).start();
                             	});
 
-                            	lobbyPanel.add(refreshButton, BorderLayout.SOUTH);
+                            	JButton createRoomButton = new JButton("방 만들기");
+
+                            	createRoomButton.addActionListener(createEvent -> {
+                            	    String input = JOptionPane.showInputDialog(frame, "방 제목을 입력하세요.");
+                            	    if (input == null) {
+                            	        return;
+                            	    }
+
+                            	    String roomName = input.strip();
+                            	    if (roomName.isEmpty()) {
+                            	        JOptionPane.showMessageDialog(frame, "방 제목을 입력하세요.");
+                            	        return;
+                            	    }
+
+                            	    if (roomName.contains("|") || roomName.contains("\n") || roomName.contains("\r")) {
+                            	        JOptionPane.showMessageDialog(frame, "방 제목에는 |와 줄바꿈을 넣을 수 없습니다.");
+                            	        return;
+                            	    }
+
+                            	    String request = "CREATE_ROOM|" + roomName;
+                            	    System.out.println("방 생성 요청 = " + request);
+                            	    new Thread(() -> {
+                            	        try {
+                            	            writer.write(request + "\n");
+                            	            writer.flush();
+                            	        } catch (IOException ex) {
+                            	            System.out.println("방 생성 요청 실패 = " + ex.getMessage());
+                            	        }
+                            	    }).start();
+                            	});
+                            	
+                            	JButton quickJoinButton = new JButton("빠른 입장");
+                            	quickJoinButton.addActionListener(joinEvent -> {
+                            	    RoomInfo selectedRoom = roomList.getSelectedValue();
+
+                            	    if (selectedRoom == null) {
+                            	        JOptionPane.showMessageDialog(frame, "입장할 방을 선택하세요.");
+                            	        return;
+                            	    }
+
+                            	    String request = "JOIN_ROOM|" + selectedRoom.id();
+                            	    new Thread(() -> {
+                            	        try {
+                            	            writer.write(request + "\n");
+                            	            writer.flush();
+                            	            System.out.println("방 입장 요청 전송 = " + request);
+                            	        } catch (IOException ex) {
+                            	            System.out.println("방 입장 요청 실패 = " + ex.getMessage());
+                            	        }
+                            	    }).start();
+                            	});
+                            	
+                            	JPanel lobbyButtons = new JPanel();
+                            	lobbyButtons.add(refreshButton);
+                            	lobbyButtons.add(createRoomButton);
+                            	lobbyButtons.add(quickJoinButton);
+                            	lobbyPanel.add(lobbyButtons, BorderLayout.SOUTH);
 
                                 frame.setContentPane(lobbyPanel);
                                 frame.setTitle("낙서한판 대기실");
@@ -135,18 +197,37 @@ public class ClientMain {
                             while ((roomResponse = reader.readLine()) != null) {
                                 System.out.println("서버 메시지 = " + roomResponse);
                                 String[] parts = roomResponse.split("\\|", -1);
+                                boolean enteringRoom = "ROOM_CREATED".equals(parts[0]) || "JOIN_OK".equals(parts[0]);
+                                if (enteringRoom && parts.length == 2 && !parts[1].isBlank()) {
+                                    String roomId = parts[1];
+
+                                    SwingUtilities.invokeLater(() -> {
+                                        JPanel roomPanel = new JPanel(new BorderLayout());
+                                        roomPanel.add(new JLabel("방 번호 " + roomId, JLabel.CENTER), BorderLayout.CENTER);
+
+                                        frame.setContentPane(roomPanel);
+                                        frame.setTitle("낙서한판 - 방 " + roomId);
+                                        frame.revalidate();
+                                        frame.repaint();
+                                    });
+
+                                    continue;
+                                }
 
                                 if (!"ROOMS".equals(parts[0]) || parts.length % 2 == 0) {
                                     continue;
                                 }
 
-                                String[] roomNames = new String[(parts.length - 1) / 2];
-                                for (int i = 0; i < roomNames.length; i++) {
-                                    roomNames[i] = parts[i * 2 + 2];
+                                RoomInfo[] rooms = new RoomInfo[(parts.length - 1) / 2];
+
+                                for (int i = 0; i < rooms.length; i++) {
+                                    String id = parts[i * 2 + 1];
+                                    String name = parts[i * 2 + 2];
+                                    rooms[i] = new RoomInfo(id, name);
                                 }
 
                                 SwingUtilities.invokeLater(() -> {
-                                    roomList.setListData(roomNames);
+                                    roomList.setListData(rooms);
                                     refreshButton.setEnabled(true);
                                 });
                             }
