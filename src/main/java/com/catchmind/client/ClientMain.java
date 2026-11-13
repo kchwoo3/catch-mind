@@ -22,6 +22,14 @@ import javax.swing.JScrollPane;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.Dimension;
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.GridBagLayout;
+import java.awt.Image;
+import java.net.URL;
+import javax.swing.BorderFactory;
+import javax.swing.ImageIcon;
+import java.awt.FlowLayout;
 
 public class ClientMain {
 	private record RoomInfo(String id, String name) {
@@ -34,7 +42,7 @@ public class ClientMain {
     	SwingUtilities.invokeLater(() -> {
             JFrame frame = new JFrame("낙서한판 로그인");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            frame.setSize(540, 330);
+            frame.setSize(760, 420);
             frame.setLocationRelativeTo(null);
             JPanel panel = new JPanel(new GridLayout(3, 2, 15, 15));
 
@@ -49,7 +57,6 @@ public class ClientMain {
             panel.add(new JLabel("닉네임"));
             panel.add(nicknameField);
 
-            frame.add(panel);
             
             JButton connectButton = new JButton("접속");
 
@@ -100,18 +107,46 @@ public class ClientMain {
                         System.out.println("서버 응답 = " + response);
                         if ("LOGIN_OK".equals(response)) {
                             SwingUtilities.invokeLater(() -> {
-                            	JPanel lobbyPanel = new JPanel(new BorderLayout());
-                            	lobbyPanel.add(new JLabel(nickname + "님, 대기실입니다."), BorderLayout.NORTH);
-                            	lobbyPanel.add(new JScrollPane(roomList), BorderLayout.CENTER);
-                            	
-                            	JList<String> lobbyUserList = new JList<>(new String[] { nickname });
+                            	JPanel lobbyPanel = new JPanel(new BorderLayout(14, 14));
+                            	lobbyPanel.setBackground(new Color(0xDDF3FF));
+                            	lobbyPanel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
 
-                            	JPanel lobbyUsersPanel = new JPanel(new BorderLayout());
+                            	JLabel lobbyTitle = new JLabel("낙서한판 대기실");
+                            	lobbyTitle.setFont(lobbyTitle.getFont().deriveFont(Font.BOLD, 24f));
+                            	lobbyTitle.setForeground(new Color(0x16366D));
+
+                            	URL lobbyIconUrl = ClientMain.class.getResource("/images/login-sketchbook.png");
+                            	if (lobbyIconUrl != null) {
+                            	    Image icon = new ImageIcon(lobbyIconUrl).getImage();
+                            	    lobbyTitle.setIcon(new ImageIcon(
+                            	        icon.getScaledInstance(44, 44, Image.SCALE_SMOOTH)
+                            	    ));
+                            	    lobbyTitle.setIconTextGap(10);
+                            	}
+
+                            	JPanel lobbyHeader = new JPanel(new BorderLayout());
+                            	lobbyHeader.setBackground(new Color(0xDDF3FF));
+                            	lobbyHeader.setBorder(BorderFactory.createEmptyBorder(8, 14, 8, 14));
+                            	lobbyHeader.add(lobbyTitle, BorderLayout.WEST);
+                            	lobbyHeader.add(new JLabel(nickname + "님"), BorderLayout.EAST);
+                            	lobbyPanel.add(lobbyHeader, BorderLayout.NORTH);
+
+                            	JPanel roomsPanel = new JPanel(new BorderLayout(0, 8));
+                            	roomsPanel.setBackground(new Color(0xDDF3FF));
+                            	roomsPanel.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+                            	roomsPanel.add(new JLabel("방 목록"), BorderLayout.NORTH);
+                            	roomsPanel.add(new JScrollPane(roomList), BorderLayout.CENTER);
+                            	lobbyPanel.add(roomsPanel, BorderLayout.CENTER);
+
+                            	JList<String> lobbyUserList = new JList<>(new String[] { nickname });
+                            	JPanel lobbyUsersPanel = new JPanel(new BorderLayout(0, 8));
+                            	lobbyUsersPanel.setBackground(new Color(0xDDF3FF));
+                            	lobbyUsersPanel.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
                             	lobbyUsersPanel.add(new JLabel("접속자 목록"), BorderLayout.NORTH);
                             	lobbyUsersPanel.add(new JScrollPane(lobbyUserList), BorderLayout.CENTER);
-                            	lobbyUsersPanel.setPreferredSize(new Dimension(120, 0));
-
+                            	lobbyUsersPanel.setPreferredSize(new Dimension(220, 0));
                             	lobbyPanel.add(lobbyUsersPanel, BorderLayout.EAST);
+                            	
                             	refreshButton.addActionListener(refreshEvent -> {
                             	    refreshButton.setEnabled(false);
 
@@ -177,7 +212,8 @@ public class ClientMain {
                             	    }).start();
                             	});
                             	
-                            	JPanel lobbyButtons = new JPanel();
+                            	JPanel lobbyButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+                            	lobbyButtons.setOpaque(false);
                             	lobbyButtons.add(refreshButton);
                             	lobbyButtons.add(createRoomButton);
                             	lobbyButtons.add(quickJoinButton);
@@ -248,13 +284,53 @@ public class ClientMain {
 
                             System.out.println("서버 연결이 종료됐습니다.");
                         }
+                        else {
+                        	SwingUtilities.invokeLater(() -> {
+                        	    JOptionPane.showMessageDialog(frame, "로그인에 실패했습니다.");
+                        	});
+                        }
                     } catch (IOException ex) {
                         System.out.println("통신 실패 = " + ex.getMessage());
+                        SwingUtilities.invokeLater(() -> {
+                            JOptionPane.showMessageDialog(frame, "서버 통신에 실패했습니다.");
+                        });
                     }
                 }).start();
             });
 
-            frame.add(connectButton, BorderLayout.SOUTH);
+            JLabel illustration = new JLabel("", JLabel.CENTER);
+            URL imageUrl = ClientMain.class.getResource("/images/login-sketchbook.png");
+            if (imageUrl != null) {
+                Image image = new ImageIcon(imageUrl).getImage();
+                illustration.setIcon(new ImageIcon(
+                    image.getScaledInstance(230, 230, Image.SCALE_SMOOTH)
+                ));
+            }
+            illustration.setOpaque(true);
+            illustration.setBackground(new Color(0xDDF3FF));
+
+            JLabel title = new JLabel("낙서한판", JLabel.CENTER);
+            title.setFont(title.getFont().deriveFont(Font.BOLD, 32f));
+            title.setForeground(new Color(0x16366D));
+
+            panel.setOpaque(false);
+
+            JPanel formCard = new JPanel(new BorderLayout(0, 18));
+            formCard.setOpaque(false);
+            formCard.add(title, BorderLayout.NORTH);
+            formCard.add(panel, BorderLayout.CENTER);
+            formCard.add(connectButton, BorderLayout.SOUTH);
+
+            JPanel formSide = new JPanel(new GridBagLayout());
+            formSide.setBackground(new Color(0xDDF3FF));
+            formSide.add(formCard);
+
+            JPanel loginScreen = new JPanel(new GridLayout(1, 2, 14, 0));
+            loginScreen.setBackground(new Color(0xDDF3FF));
+            loginScreen.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+            loginScreen.add(illustration);
+            loginScreen.add(formSide);
+            frame.setContentPane(loginScreen);
             
             frame.setVisible(true);
         });
