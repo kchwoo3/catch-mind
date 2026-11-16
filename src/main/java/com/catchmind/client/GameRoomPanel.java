@@ -59,18 +59,11 @@ public class GameRoomPanel extends JPanel {
 
 		add(statusPanel, BorderLayout.NORTH);
 
-		JPanel canvasPanel = new JPanel();
-		canvasPanel.setBackground(Color.WHITE);
+		DrawingPanel canvasPanel = new DrawingPanel();
 		canvasPanel.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
 
-		JPanel drawingTools = new JPanel(new FlowLayout(FlowLayout.LEFT));
+		JPanel drawingTools = canvasPanel.createToolsPanel();
 		drawingTools.setOpaque(false);
-		drawingTools.add(new JLabel("색상"));
-		drawingTools.add(new JComboBox<>(new String[] { "검정", "빨강", "파랑" }));
-		drawingTools.add(new JLabel("선 굵기"));
-		drawingTools.add(new JComboBox<>(new String[] { "2 px", "4 px", "8 px" }));
-		drawingTools.add(new JButton("지우개"));
-		drawingTools.add(new JButton("전체 지우기"));
 
 		JPanel drawingArea = new JPanel(new BorderLayout());
 		drawingArea.setOpaque(false);

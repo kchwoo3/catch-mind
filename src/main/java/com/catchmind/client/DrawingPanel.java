@@ -92,50 +92,50 @@ public class DrawingPanel extends JPanel {
 		previousPoint = null;
 		repaint();
 	}
+	JPanel createToolsPanel() {
+	    JPanel toolsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
+	    JComboBox<String> colorSelect =
+	        new JComboBox<>(new String[] { "검정", "빨강", "파랑" });
+	    colorSelect.addActionListener(event -> {
+	        switch (colorSelect.getSelectedIndex()) {
+	            case 1 -> penColor = Color.RED;
+	            case 2 -> penColor = Color.BLUE;
+	            default -> penColor = Color.BLACK;
+	        }
+	    });
+	    toolsPanel.add(new JLabel("색상"));
+	    toolsPanel.add(colorSelect);
+
+	    JComboBox<Integer> widthSelect =
+	        new JComboBox<>(new Integer[] { 2, 4, 8 });
+	    widthSelect.addActionListener(event -> {
+	        Integer width = (Integer) widthSelect.getSelectedItem();
+	        if (width != null) {
+	            penWidth = width;
+	        }
+	    });
+	    toolsPanel.add(new JLabel("선 굵기 (px)"));
+	    toolsPanel.add(widthSelect);
+
+	    JToggleButton eraserButton = new JToggleButton("지우개");
+	    eraserButton.addActionListener(event -> eraserMode = eraserButton.isSelected());
+	    toolsPanel.add(eraserButton);
+
+	    JButton clearButton = new JButton("전체 지우기");
+	    clearButton.addActionListener(event -> clearDrawing());
+	    toolsPanel.add(clearButton);
+
+	    return toolsPanel;
+	}
 	public static void main(String[] args) {
 		SwingUtilities.invokeLater(() -> {
 			JFrame frame = new JFrame("낙서한판 - 그림판 미리보기");
 			frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
 			DrawingPanel drawingPanel = new DrawingPanel();
 
-			JComboBox<String> colorSelect = new JComboBox<>(new String[] { "검정", "빨강", "파랑" });
-			colorSelect.addActionListener(event -> {
-				switch (colorSelect.getSelectedIndex()) {
-				case 1 -> drawingPanel.penColor = Color.RED;
-				case 2 -> drawingPanel.penColor = Color.BLUE;
-				default -> drawingPanel.penColor = Color.BLACK;
-				}
-			});
-
-			JPanel toolsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-			toolsPanel.add(new JLabel("색상"));
-			toolsPanel.add(colorSelect);
-
-			JComboBox<Integer> widthSelect = new JComboBox<>(new Integer[] { 2, 4, 8 });
-			widthSelect.addActionListener(event -> {
-				Integer width = (Integer) widthSelect.getSelectedItem();
-				if (width != null) {
-					drawingPanel.penWidth = width;
-				}
-			});
-
-			JButton clearButton = new JButton("전체 지우기");
-			clearButton.addActionListener(event -> drawingPanel.clearDrawing());
-
-			toolsPanel.add(new JLabel("선 굵기 (px)"));
-			toolsPanel.add(widthSelect);
-
-			JToggleButton eraserButton = new JToggleButton("지우개");
-			eraserButton.addActionListener(event -> {
-				drawingPanel.eraserMode = eraserButton.isSelected();
-			});
-
-			toolsPanel.add(eraserButton);
-			toolsPanel.add(clearButton);
-
 			frame.add(drawingPanel, BorderLayout.CENTER);
-			frame.add(toolsPanel, BorderLayout.SOUTH);
+			frame.add(drawingPanel.createToolsPanel(), BorderLayout.SOUTH);
 			frame.setSize(720, 480);
 			frame.setLocationRelativeTo(null);
 			frame.setVisible(true);
