@@ -8,10 +8,6 @@ public class SessionManager {
     private final Map<String, ClientHandler> activeSessions = new ConcurrentHashMap<>();
     private final AtomicInteger idGenerator = new AtomicInteger(1);
 
-    /**
-     * 닉네임 중복 검사 후 세션 등록.
-     * 성공 시 발급된 유저 고유 ID 반환, 중복/유효하지 않으면 -1 반환.
-     */
     public synchronized int registerUser(String nickname, ClientHandler handler) {
         if (nickname == null || nickname.isBlank() || activeSessions.containsKey(nickname)) {
             return -1;
@@ -21,9 +17,6 @@ public class SessionManager {
         return userId;
     }
 
-    /**
-     * 클라이언트 연결 종료 시 세션 정리
-     */
     public void removeUser(String nickname) {
         if (nickname != null) {
             activeSessions.remove(nickname);
@@ -31,12 +24,34 @@ public class SessionManager {
         }
     }
 
-    /**
-     * 접속 중인 모든 클라이언트에게 메시지 브로드캐스트
-     */
     public void broadcast(String message) {
         for (ClientHandler client : activeSessions.values()) {
             client.sendMessage(message);
+        }
+    }
+
+    // 대기실 우측 접속자 목록 갱신 (LOBBY_USERS|닉네임1|닉네임2...)
+    public void broadcastLobbyUsers() {
+        StringBuilder sb = new StringBuilder("LOBBY_USERS");
+        for (ClientHandler client : activeSessions.values()) {
+            if (client.getCurrentRoomId() == -1 && client.getNickname() != null) {
+                sb.append("|").append(client.getNickname());
+            }
+        }
+        String msg = sb.toString();
+        for (ClientHandler client : activeSessions.values()) {
+            if (client.getCurrentRoomId() == -1) {
+                client.sendMessage(msg);
+            }
+        }
+    }
+
+    // 대기실에 있는 모든 유저에게 최신 방 목록 전송
+    public void broadcastRoomsToLobby(String roomsMessage) {
+        for (ClientHandler client : activeSessions.values()) {
+            if (client.getCurrentRoomId() == -1) {
+                client.sendMessage(roomsMessage);
+            }
         }
     }
 }
