@@ -254,10 +254,7 @@ public class ClientMain {
 									String roomId = parts[1];
 
 									SwingUtilities.invokeLater(() -> {
-										JPanel roomPanel = new JPanel(new BorderLayout());
-										roomPanel.add(new JLabel("방 번호 " + roomId, JLabel.CENTER), BorderLayout.CENTER);
-
-										frame.setContentPane(roomPanel);
+										frame.setContentPane(new GameRoomPanel(roomId));
 										frame.setTitle("낙서한판 - 방 " + roomId);
 										frame.setSize(1080, 660);
 										frame.setLocationRelativeTo(null);
