@@ -31,6 +31,9 @@ import javax.swing.BorderFactory;
 import javax.swing.ImageIcon;
 import java.awt.FlowLayout;
 import java.util.Arrays;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 public class ClientMain {
 	private record RoomInfo(String id, String name) {
@@ -90,7 +93,8 @@ public class ClientMain {
 				refreshButton.setEnabled(false);
 
 				new Thread(() -> {
-					try (Socket socket = new Socket()) {
+					try (ExecutorService chatSendExecutor = Executors.newSingleThreadExecutor();
+							Socket socket = new Socket()) {
 						socket.connect(new InetSocketAddress(ip, port), 3000);
 						System.out.println("TCP 연결 성공");
 
@@ -254,7 +258,23 @@ public class ClientMain {
 									String roomId = parts[1];
 
 									SwingUtilities.invokeLater(() -> {
-										frame.setContentPane(new GameRoomPanel(roomId));
+										GameRoomPanel gameRoom = new GameRoomPanel(roomId);
+
+										gameRoom.setChatSender(body -> {
+										    try {
+										        chatSendExecutor.execute(() -> {
+										            try {
+										                writer.write("CHAT|" + body + "\n");
+										                writer.flush();
+										            } catch (IOException ex) {
+										                System.out.println("채팅 전송 실패 = " + ex.getMessage());
+										            }
+										        });
+										    } catch (RejectedExecutionException ex) {
+										        System.out.println("채팅 전송 실패 = 연결이 종료되었습니다.");
+										    }
+										});
+										frame.setContentPane(gameRoom);
 										frame.setTitle("낙서한판 - 방 " + roomId);
 										frame.setSize(1080, 660);
 										frame.setLocationRelativeTo(null);

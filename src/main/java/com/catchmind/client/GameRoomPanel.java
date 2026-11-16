@@ -18,8 +18,15 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import java.awt.Font;
 import javax.swing.JProgressBar;
+import java.awt.event.ActionListener;
+import java.util.function.Consumer;
 
 public class GameRoomPanel extends JPanel {
+	private Consumer<String> chatSender = body -> System.out.println("CHAT|" + body);
+
+	void setChatSender(Consumer<String> chatSender) {
+	    this.chatSender = chatSender;
+	}
 	public GameRoomPanel(String roomId) {
 		this(roomId, "라운드 —", 0, new Object[0][0], "");
 	}
@@ -96,8 +103,25 @@ public class GameRoomPanel extends JPanel {
 
 		JPanel chatInputPanel = new JPanel(new BorderLayout(4, 0));
 		chatInputPanel.setOpaque(false);
-		chatInputPanel.add(new JTextField(), BorderLayout.CENTER);
-		chatInputPanel.add(new JButton("전송"), BorderLayout.EAST);
+		JTextField chatInput = new JTextField();
+		JButton chatSendButton = new JButton("전송");
+
+		ActionListener sendChat = event -> {
+		    String body = chatInput.getText().strip();
+		    if (body.isEmpty()) {
+		        return;
+		    }
+
+		    chatSender.accept(body);
+		    chatInput.setText("");
+		    chatInput.requestFocusInWindow();
+		};
+
+		chatInput.addActionListener(sendChat);
+		chatSendButton.addActionListener(sendChat);
+
+		chatInputPanel.add(chatInput, BorderLayout.CENTER);
+		chatInputPanel.add(chatSendButton, BorderLayout.EAST);
 
 		JPanel chatPanel = new JPanel(new BorderLayout(0, 4));
 		chatPanel.setBackground(Color.WHITE);
