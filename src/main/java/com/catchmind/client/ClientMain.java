@@ -34,6 +34,8 @@ import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 public class ClientMain {
 	private record RoomInfo(String id, String name) {
@@ -278,18 +280,18 @@ public class ClientMain {
 										GameRoomPanel gameRoom = new GameRoomPanel(roomId);
 
 										gameRoom.setChatSender(body -> {
-											try {
-												chatSendExecutor.execute(() -> {
-													try {
-														writer.write("CHAT|" + body + "\n");
-														writer.flush();
-													} catch (IOException ex) {
-														System.out.println("채팅 전송 실패 = " + ex.getMessage());
-													}
-												});
-											} catch (RejectedExecutionException ex) {
-												System.out.println("채팅 전송 실패 = 연결이 종료되었습니다.");
-											}
+										    try {
+										        return CompletableFuture.runAsync(() -> {
+										            try {
+										                writer.write("CHAT|" + body + "\n");
+										                writer.flush();
+										            } catch (IOException ex) {
+										                throw new CompletionException(ex);
+										            }
+										        }, chatSendExecutor);
+										    } catch (RejectedExecutionException ex) {
+										        return CompletableFuture.failedFuture(ex);
+										    }
 										});
 										frame.setContentPane(gameRoom);
 										frame.setTitle("낙서한판 - 방 " + roomId);
