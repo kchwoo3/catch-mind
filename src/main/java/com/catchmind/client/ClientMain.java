@@ -246,6 +246,23 @@ public class ClientMain {
 							String roomResponse;
 							while ((roomResponse = reader.readLine()) != null) {
 								System.out.println("서버 메시지 = " + roomResponse);
+								if (roomResponse.startsWith("CHAT|") || roomResponse.startsWith("CHAT_NOTIFY|")) {
+									String[] chat = roomResponse.split("\\|", 3);
+
+									if (chat.length == 3) {
+										SwingUtilities.invokeLater(() -> {
+											if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
+												if ("CHAT_NOTIFY".equals(chat[0]) && "SYSTEM".equals(chat[1])) {
+													gameRoom.appendSystemMessage(chat[2]);
+												} else {
+													gameRoom.appendChatMessage(chat[1], chat[2]);
+												}
+											}
+										});
+									}
+
+									continue;
+								}
 								String[] parts = roomResponse.split("\\|", -1);
 								if ("LOBBY_USERS".equals(parts[0])) {
 									String[] users = Arrays.copyOfRange(parts, 1, parts.length);
@@ -261,18 +278,18 @@ public class ClientMain {
 										GameRoomPanel gameRoom = new GameRoomPanel(roomId);
 
 										gameRoom.setChatSender(body -> {
-										    try {
-										        chatSendExecutor.execute(() -> {
-										            try {
-										                writer.write("CHAT|" + body + "\n");
-										                writer.flush();
-										            } catch (IOException ex) {
-										                System.out.println("채팅 전송 실패 = " + ex.getMessage());
-										            }
-										        });
-										    } catch (RejectedExecutionException ex) {
-										        System.out.println("채팅 전송 실패 = 연결이 종료되었습니다.");
-										    }
+											try {
+												chatSendExecutor.execute(() -> {
+													try {
+														writer.write("CHAT|" + body + "\n");
+														writer.flush();
+													} catch (IOException ex) {
+														System.out.println("채팅 전송 실패 = " + ex.getMessage());
+													}
+												});
+											} catch (RejectedExecutionException ex) {
+												System.out.println("채팅 전송 실패 = 연결이 종료되었습니다.");
+											}
 										});
 										frame.setContentPane(gameRoom);
 										frame.setTitle("낙서한판 - 방 " + roomId);
