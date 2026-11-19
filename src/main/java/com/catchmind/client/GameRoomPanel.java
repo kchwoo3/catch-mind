@@ -18,8 +18,21 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import java.awt.Font;
 import javax.swing.JProgressBar;
+import java.awt.event.ActionListener;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 
 public class GameRoomPanel extends JPanel {
+	private final JTextArea chatHistory = new JTextArea();
+	private Function<String, CompletableFuture<Void>> chatSender = body -> {
+	    System.out.println("CHAT|" + body);
+	    return CompletableFuture.completedFuture(null);
+	};
+
+	void setChatSender(Function<String, CompletableFuture<Void>> chatSender) {
+	    this.chatSender = chatSender;
+	}
+
 	public GameRoomPanel(String roomId) {
 		this(roomId, "라운드 —", 0, new Object[0][0], "");
 	}
@@ -89,15 +102,51 @@ public class GameRoomPanel extends JPanel {
 		sidePanel.setOpaque(false);
 		sidePanel.add(playersPanel, BorderLayout.NORTH);
 
-		JTextArea chatHistory = new JTextArea(chatText);
+		chatHistory.setText(chatText);
 		chatHistory.setEditable(false);
 		chatHistory.setLineWrap(true);
 		chatHistory.setWrapStyleWord(true);
 
 		JPanel chatInputPanel = new JPanel(new BorderLayout(4, 0));
 		chatInputPanel.setOpaque(false);
-		chatInputPanel.add(new JTextField(), BorderLayout.CENTER);
-		chatInputPanel.add(new JButton("전송"), BorderLayout.EAST);
+		JTextField chatInput = new JTextField();
+		JButton chatSendButton = new JButton("전송");
+
+		JLabel chatError = new JLabel("전송 실패. 연결을 확인하세요.");
+		chatError.setForeground(new Color(0xA32121));
+		chatError.setVisible(false);
+		chatInputPanel.add(chatError, BorderLayout.SOUTH);
+
+		ActionListener sendChat = event -> {
+		    String body = chatInput.getText().strip();
+		    if (body.isEmpty() || !chatSendButton.isEnabled()) {
+		        return;
+		    }
+
+		    chatError.setVisible(false);
+		    chatSendButton.setEnabled(false);
+		    chatInput.setEditable(false);
+
+		    chatSender.apply(body).whenComplete((result, error) -> {
+		        SwingUtilities.invokeLater(() -> {
+		            if (error == null) {
+		                chatInput.setText("");
+		            } else {
+		                chatError.setVisible(true);
+		            }
+
+		            chatSendButton.setEnabled(true);
+		            chatInput.setEditable(true);
+		            chatInput.requestFocusInWindow();
+		        });
+		    });
+		};
+
+		chatInput.addActionListener(sendChat);
+		chatSendButton.addActionListener(sendChat);
+
+		chatInputPanel.add(chatInput, BorderLayout.CENTER);
+		chatInputPanel.add(chatSendButton, BorderLayout.EAST);
 
 		JPanel chatPanel = new JPanel(new BorderLayout(0, 4));
 		chatPanel.setBackground(Color.WHITE);
@@ -110,6 +159,23 @@ public class GameRoomPanel extends JPanel {
 		add(sidePanel, BorderLayout.EAST);
 	}
 
+	void appendChatMessage(String nickname, String body) {
+		appendChatLine(nickname + ": " + body);
+	}
+
+	void appendSystemMessage(String body) {
+		appendChatLine("[시스템] " + body);
+	}
+
+	private void appendChatLine(String line) {
+		if (chatHistory.getDocument().getLength() > 0) {
+			chatHistory.append("\n");
+		}
+
+		chatHistory.append(line);
+		chatHistory.setCaretPosition(chatHistory.getDocument().getLength());
+	}
+
 	public static void main(String[] args) {
 		SwingUtilities.invokeLater(() -> {
 			JFrame frame = new JFrame("낙서한판 - 게임방 미리보기");
@@ -117,7 +183,15 @@ public class GameRoomPanel extends JPanel {
 			Object[][] samplePlayers = { { "그림왕", 20 }, { "스케치왕", 10 } };
 			String sampleChat = "그림왕: 안녕하세요!\n스케치왕: 반가워요!";
 
-			frame.setContentPane(new GameRoomPanel("1", "라운드 1 / 5", 42, samplePlayers, sampleChat));
+			GameRoomPanel previewRoom = new GameRoomPanel("1", "라운드 1 / 5", 42, samplePlayers, sampleChat);
+
+			previewRoom.appendSystemMessage("그림친구님이 입장했습니다.");
+			previewRoom.setChatSender(body -> {
+			    previewRoom.appendChatMessage("그림왕", body);
+			    return CompletableFuture.completedFuture(null);
+			});
+
+			frame.setContentPane(previewRoom);
 			frame.setSize(1080, 660);
 			frame.setLocationRelativeTo(null);
 			frame.setVisible(true);

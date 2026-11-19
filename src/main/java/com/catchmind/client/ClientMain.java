@@ -31,6 +31,11 @@ import javax.swing.BorderFactory;
 import javax.swing.ImageIcon;
 import java.awt.FlowLayout;
 import java.util.Arrays;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 public class ClientMain {
 	private record RoomInfo(String id, String name) {
@@ -90,7 +95,8 @@ public class ClientMain {
 				refreshButton.setEnabled(false);
 
 				new Thread(() -> {
-					try (Socket socket = new Socket()) {
+					try (ExecutorService chatSendExecutor = Executors.newSingleThreadExecutor();
+							Socket socket = new Socket()) {
 						socket.connect(new InetSocketAddress(ip, port), 3000);
 						System.out.println("TCP 연결 성공");
 
@@ -242,6 +248,33 @@ public class ClientMain {
 							String roomResponse;
 							while ((roomResponse = reader.readLine()) != null) {
 								System.out.println("서버 메시지 = " + roomResponse);
+								if (roomResponse.startsWith("CHAT|")) {
+								    String[] chat = roomResponse.split("\\|", 3);
+
+								    if (chat.length == 3) {
+								        SwingUtilities.invokeLater(() -> {
+								            if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
+								                gameRoom.appendChatMessage(chat[1], chat[2]);
+								            }
+								        });
+								    }
+
+								    continue;
+								}
+
+								if (roomResponse.startsWith("CHAT_NOTIFY|")) {
+								    String[] notice = roomResponse.split("\\|", 2);
+
+								    if (notice.length == 2) {
+								        SwingUtilities.invokeLater(() -> {
+								            if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
+								                gameRoom.appendSystemMessage(notice[1]);
+								            }
+								        });
+								    }
+
+								    continue;
+								}
 								String[] parts = roomResponse.split("\\|", -1);
 								if ("LOBBY_USERS".equals(parts[0])) {
 									String[] users = Arrays.copyOfRange(parts, 1, parts.length);
@@ -254,7 +287,23 @@ public class ClientMain {
 									String roomId = parts[1];
 
 									SwingUtilities.invokeLater(() -> {
-										frame.setContentPane(new GameRoomPanel(roomId));
+										GameRoomPanel gameRoom = new GameRoomPanel(roomId);
+
+										gameRoom.setChatSender(body -> {
+										    try {
+										        return CompletableFuture.runAsync(() -> {
+										            try {
+										                writer.write("CHAT|" + body + "\n");
+										                writer.flush();
+										            } catch (IOException ex) {
+										                throw new CompletionException(ex);
+										            }
+										        }, chatSendExecutor);
+										    } catch (RejectedExecutionException ex) {
+										        return CompletableFuture.failedFuture(ex);
+										    }
+										});
+										frame.setContentPane(gameRoom);
 										frame.setTitle("낙서한판 - 방 " + roomId);
 										frame.setSize(1080, 660);
 										frame.setLocationRelativeTo(null);
