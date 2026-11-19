@@ -248,22 +248,32 @@ public class ClientMain {
 							String roomResponse;
 							while ((roomResponse = reader.readLine()) != null) {
 								System.out.println("서버 메시지 = " + roomResponse);
-								if (roomResponse.startsWith("CHAT|") || roomResponse.startsWith("CHAT_NOTIFY|")) {
-									String[] chat = roomResponse.split("\\|", 3);
+								if (roomResponse.startsWith("CHAT|")) {
+								    String[] chat = roomResponse.split("\\|", 3);
 
-									if (chat.length == 3) {
-										SwingUtilities.invokeLater(() -> {
-											if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
-												if ("CHAT_NOTIFY".equals(chat[0]) && "SYSTEM".equals(chat[1])) {
-													gameRoom.appendSystemMessage(chat[2]);
-												} else {
-													gameRoom.appendChatMessage(chat[1], chat[2]);
-												}
-											}
-										});
-									}
+								    if (chat.length == 3) {
+								        SwingUtilities.invokeLater(() -> {
+								            if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
+								                gameRoom.appendChatMessage(chat[1], chat[2]);
+								            }
+								        });
+								    }
 
-									continue;
+								    continue;
+								}
+
+								if (roomResponse.startsWith("CHAT_NOTIFY|")) {
+								    String[] notice = roomResponse.split("\\|", 2);
+
+								    if (notice.length == 2) {
+								        SwingUtilities.invokeLater(() -> {
+								            if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
+								                gameRoom.appendSystemMessage(notice[1]);
+								            }
+								        });
+								    }
+
+								    continue;
 								}
 								String[] parts = roomResponse.split("\\|", -1);
 								if ("LOBBY_USERS".equals(parts[0])) {
