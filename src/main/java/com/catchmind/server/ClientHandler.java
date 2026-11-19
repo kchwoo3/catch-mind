@@ -150,6 +150,7 @@ public class ClientHandler implements Runnable {
 
                 sendMessage("JOIN_OK|" + targetRoomId);
                 room.broadcast(room.buildPlayersMessage());
+                room.broadcast("CHAT_NOTIFY|" + this.nickname + "님이 입장했습니다.");
                 sessionManager.broadcastLobbyUsers();
 
                 if (serverGui != null) {
@@ -165,6 +166,10 @@ public class ClientHandler implements Runnable {
                 int prevRoomId = this.currentRoomId;
                 this.currentRoomId = -1;
                 roomManager.leaveRoom(prevRoomId, this);
+                Room leftRoom = roomManager.getRoom(prevRoomId);
+                if (leftRoom != null) {
+                	leftRoom.broadcast("CHAT_NOTIFY|" + this.nickname + "님이 퇴장했습니다.");
+                }
 
                 sendMessage("LEAVE_OK");
                 sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
@@ -176,10 +181,11 @@ public class ClientHandler implements Runnable {
                     sendMessage("ERROR|NOT_IN_ROOM");
                     return;
                 }
-                if (tokens.length < 2) return;
+                String[] chatTokens = message.split("\\|", 2);
+                if (chatTokens.length < 2 || chatTokens[1].isBlank()) return;
                 Room room = roomManager.getRoom(this.currentRoomId);
                 if (room != null) {
-                    room.broadcast("CHAT|" + this.nickname + "|" + tokens[1]);
+                    room.broadcast("CHAT|" + this.nickname + "|" + chatTokens[1]);
                 }
             }
 
@@ -206,11 +212,16 @@ public class ClientHandler implements Runnable {
     }
 
     private void cleanup() {
-        if (this.currentRoomId != -1) {
-            roomManager.leaveRoom(this.currentRoomId, this);
-            this.currentRoomId = -1;
-            sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
-        }
+    	if (this.currentRoomId != -1) {
+    	    int prevRoomId = this.currentRoomId;
+    	    roomManager.leaveRoom(prevRoomId, this);
+    	    this.currentRoomId = -1;
+    	    Room leftRoom = roomManager.getRoom(prevRoomId);
+    	    if (leftRoom != null) {
+    	    	leftRoom.broadcast("CHAT_NOTIFY|" + this.nickname + "님이 퇴장했습니다.");
+    	    }
+    	    sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
+    	}
         if (this.nickname != null) {
             sessionManager.removeUser(this.nickname);
             sessionManager.broadcastLobbyUsers();
