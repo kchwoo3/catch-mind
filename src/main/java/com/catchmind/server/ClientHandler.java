@@ -150,7 +150,7 @@ public class ClientHandler implements Runnable {
 
                 sendMessage("JOIN_OK|" + targetRoomId);
                 room.broadcast(room.buildPlayersMessage());
-                room.broadcast("CHAT_NOTIFY|SYSTEM|" + this.nickname + "님이 입장했습니다.");
+                room.broadcast("CHAT_NOTIFY|" + this.nickname + "님이 입장했습니다.");
                 sessionManager.broadcastLobbyUsers();
 
                 if (serverGui != null) {
@@ -168,7 +168,7 @@ public class ClientHandler implements Runnable {
                 roomManager.leaveRoom(prevRoomId, this);
                 Room leftRoom = roomManager.getRoom(prevRoomId);
                 if (leftRoom != null) {
-                    leftRoom.broadcast("CHAT_NOTIFY|SYSTEM|" + this.nickname + "님이 퇴장했습니다.");
+                	leftRoom.broadcast("CHAT_NOTIFY|" + this.nickname + "님이 퇴장했습니다.");
                 }
 
                 sendMessage("LEAVE_OK");
@@ -181,10 +181,11 @@ public class ClientHandler implements Runnable {
                     sendMessage("ERROR|NOT_IN_ROOM");
                     return;
                 }
-                if (tokens.length < 2 || tokens[1].isBlank()) return;
+                String[] chatTokens = message.split("\\|", 2);
+                if (chatTokens.length < 2 || chatTokens[1].isBlank()) return;
                 Room room = roomManager.getRoom(this.currentRoomId);
                 if (room != null) {
-                    room.broadcast("CHAT_NOTIFY|" + this.nickname + "|" + tokens[1]);
+                    room.broadcast("CHAT|" + this.nickname + "|" + chatTokens[1]);
                 }
             }
 
@@ -217,7 +218,7 @@ public class ClientHandler implements Runnable {
     	    this.currentRoomId = -1;
     	    Room leftRoom = roomManager.getRoom(prevRoomId);
     	    if (leftRoom != null) {
-    	        leftRoom.broadcast("CHAT_NOTIFY|SYSTEM|" + this.nickname + "님이 퇴장했습니다.");
+    	    	leftRoom.broadcast("CHAT_NOTIFY|" + this.nickname + "님이 퇴장했습니다.");
     	    }
     	    sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
     	}
