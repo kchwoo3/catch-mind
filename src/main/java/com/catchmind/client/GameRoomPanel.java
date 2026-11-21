@@ -21,9 +21,15 @@ import javax.swing.JProgressBar;
 import java.awt.event.ActionListener;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
+import javax.swing.table.DefaultTableModel;
 
 public class GameRoomPanel extends JPanel {
 	private final JTextArea chatHistory = new JTextArea();
+	private final JButton startGameButton = new JButton("게임 시작");
+	private final String localNickname;
+	private final JTable playerTable;
+	private boolean waitingForGame = true;
+	private Runnable startGameAction;
 	private Function<String, CompletableFuture<Void>> chatSender = body -> {
 	    System.out.println("CHAT|" + body);
 	    return CompletableFuture.completedFuture(null);
@@ -34,11 +40,13 @@ public class GameRoomPanel extends JPanel {
 	}
 
 	public GameRoomPanel(String roomId) {
-		this(roomId, "라운드 —", 0, new Object[0][0], "");
+	    this(roomId, "라운드 —", 0, new Object[0][0], "", "");
 	}
 
-	private GameRoomPanel(String roomId, String roundText, int remainingSeconds, Object[][] players, String chatText) {
-		super(new BorderLayout(14, 14));
+	private GameRoomPanel(String roomId, String roundText, int remainingSeconds,
+	        Object[][] players, String chatText, String localNickname) {
+	    super(new BorderLayout(14, 14));
+	    this.localNickname = localNickname;
 		setBackground(new Color(0xDDF3FF));
 		setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
 
@@ -85,9 +93,12 @@ public class GameRoomPanel extends JPanel {
 
 		add(drawingArea, BorderLayout.CENTER);
 
-		String[] columns = { "닉네임", "점수" };
+		String[] columns = { "닉네임", "점수", "역할" };
+		playerTable = new JTable(new DefaultTableModel(players, columns));
 
-		JTable playerTable = new JTable(players, columns);
+		if (playerTable.getRowCount() > 0) {
+		    playerTable.setValueAt("방장", 0, 2);
+		}
 		playerTable.setDefaultEditor(Object.class, null);
 		playerTable.setRowHeight(24);
 		playerTable.setFillsViewportHeight(true);
@@ -96,6 +107,9 @@ public class GameRoomPanel extends JPanel {
 		playersPanel.setBackground(Color.WHITE);
 		playersPanel.setBorder(BorderFactory.createTitledBorder("참가자 목록"));
 		playersPanel.add(new JScrollPane(playerTable), BorderLayout.CENTER);
+		startGameButton.addActionListener(event -> startGameAction.run());
+		playersPanel.add(startGameButton, BorderLayout.SOUTH);
+		updateStartButton();
 		playersPanel.setPreferredSize(new Dimension(260, 160));
 
 		JPanel sidePanel = new JPanel(new BorderLayout(0, 10));
@@ -158,7 +172,26 @@ public class GameRoomPanel extends JPanel {
 
 		add(sidePanel, BorderLayout.EAST);
 	}
+	
+	void setStartGameAction(Runnable startGameAction) {
+	    this.startGameAction = startGameAction;
+	    updateStartButton();
+	}
 
+	void setWaitingForGame(boolean waitingForGame) {
+	    this.waitingForGame = waitingForGame;
+	    updateStartButton();
+	}
+
+	private void updateStartButton() {
+	    boolean canStart = waitingForGame
+	            && startGameAction != null
+	            && playerTable.getRowCount() >= 3
+	            && localNickname.equals(playerTable.getValueAt(0, 0));
+
+	    startGameButton.setEnabled(canStart);
+	}
+	
 	void appendChatMessage(String nickname, String body) {
 		appendChatLine(nickname + ": " + body);
 	}
@@ -180,11 +213,21 @@ public class GameRoomPanel extends JPanel {
 		SwingUtilities.invokeLater(() -> {
 			JFrame frame = new JFrame("낙서한판 - 게임방 미리보기");
 			frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-			Object[][] samplePlayers = { { "그림왕", 20 }, { "스케치왕", 10 } };
-			String sampleChat = "그림왕: 안녕하세요!\n스케치왕: 반가워요!";
+			Object[][] samplePlayers = {
+				    { "그림왕", 0 },
+				    { "스케치왕", 0 },
+				    { "그림친구", 0 }
+				};
+				String sampleChat = "그림왕: 안녕하세요!\n스케치왕: 반가워요!";
 
-			GameRoomPanel previewRoom = new GameRoomPanel("1", "라운드 1 / 5", 42, samplePlayers, sampleChat);
+				GameRoomPanel previewRoom =
+				        new GameRoomPanel("1", "라운드 —", 0, samplePlayers, sampleChat, "그림왕");
 
+				previewRoom.setStartGameAction(() -> {
+				    previewRoom.setWaitingForGame(false);
+				    previewRoom.appendSystemMessage("미리보기에서 게임 시작 버튼을 눌렀습니다.");
+				});
+				
 			previewRoom.appendSystemMessage("그림친구님이 입장했습니다.");
 			previewRoom.setChatSender(body -> {
 			    previewRoom.appendChatMessage("그림왕", body);
