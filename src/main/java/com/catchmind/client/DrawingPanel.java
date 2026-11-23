@@ -21,7 +21,30 @@ import javax.swing.JToggleButton;
 
 public class DrawingPanel extends JPanel {
 	private static final long serialVersionUID = 1L;
+	private enum PenColor {
+	    RED("빨강", Color.RED),
+	    ORANGE("주황", new Color(0xFFA500)),
+	    YELLOW("노랑", Color.YELLOW),
+	    GREEN("초록", new Color(0x008000)),
+	    BLUE("파랑", Color.BLUE),
+	    NAVY("남색", new Color(0x000080)),
+	    PURPLE("보라", new Color(0x800080)),
+	    WHITE("흰색", Color.WHITE),
+	    BLACK("검정", Color.BLACK);
 
+	    private final String label;
+	    private final Color color;
+
+	    PenColor(String label, Color color) {
+	        this.label = label;
+	        this.color = color;
+	    }
+
+	    @Override
+	    public String toString() {
+	        return label;
+	    }
+	}
 	private record Segment(Point from, Point to, Color color, int width) {
 	}
 
@@ -99,13 +122,13 @@ public class DrawingPanel extends JPanel {
 	JPanel createToolsPanel() {
 	    JPanel toolsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
-	    JComboBox<String> colorSelect =
-	        new JComboBox<>(new String[] { "검정", "빨강", "파랑" });
+	    JComboBox<PenColor> colorSelect = new JComboBox<>(PenColor.values());
+	    colorSelect.setSelectedItem(PenColor.BLACK);
+
 	    colorSelect.addActionListener(event -> {
-	        switch (colorSelect.getSelectedIndex()) {
-	            case 1 -> penColor = Color.RED;
-	            case 2 -> penColor = Color.BLUE;
-	            default -> penColor = Color.BLACK;
+	        PenColor selectedColor = (PenColor) colorSelect.getSelectedItem();
+	        if (selectedColor != null) {
+	            penColor = selectedColor.color;
 	        }
 	    });
 	    toolsPanel.add(new JLabel("색상"));
