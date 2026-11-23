@@ -10,6 +10,10 @@ import java.awt.GridLayout;
 import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -18,6 +22,7 @@ import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
@@ -27,9 +32,6 @@ import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.table.DefaultTableModel;
-import java.util.HashMap;
-import java.util.List;
-import javax.swing.JOptionPane;
 
 public class GameRoomPanel extends JPanel {
 	record FinalStanding(String nickname, int score, int rank) {
@@ -146,6 +148,7 @@ public class GameRoomPanel extends JPanel {
 		playersPanel.setPreferredSize(new Dimension(260, 160));
 
 		JPanel sidePanel = new JPanel(new BorderLayout(0, 10));
+		sidePanel.setPreferredSize(new Dimension(260, 0));
 		sidePanel.setOpaque(false);
 		sidePanel.add(playersPanel, BorderLayout.NORTH);
 
@@ -386,6 +389,31 @@ public class GameRoomPanel extends JPanel {
 		chatHistory.append(line);
 		chatHistory.setCaretPosition(chatHistory.getDocument().getLength());
 	}
+	
+	private List<FinalStanding> buildPreviewStandings() {
+	    List<FinalStanding> orderedScores = new ArrayList<>();
+
+	    for (int row = 0; row < playerTable.getRowCount(); row++) {
+	        String nickname = (String) playerTable.getValueAt(row, 0);
+	        int score = (Integer) playerTable.getValueAt(row, 1);
+	        orderedScores.add(new FinalStanding(nickname, score, 0));
+	    }
+
+	    orderedScores.sort(Comparator.comparingInt(FinalStanding::score).reversed());
+
+	    List<FinalStanding> standings = new ArrayList<>();
+	    int rank = 1;
+
+	    for (int index = 0; index < orderedScores.size(); index++) {
+	        FinalStanding player = orderedScores.get(index);
+	        if (index > 0 && player.score() != orderedScores.get(index - 1).score()) {
+	            rank = index + 1;
+	        }
+	        standings.add(new FinalStanding(player.nickname(), player.score(), rank));
+	    }
+
+	    return standings;
+	}
 
 	public static void main(String[] args) {
 		SwingUtilities.invokeLater(() -> {
@@ -399,61 +427,108 @@ public class GameRoomPanel extends JPanel {
 				};
 				String sampleChat = "그림왕: 안녕하세요!\n스케치왕: 반가워요!";
 
+				String[] roleOptions = { "방장", "일반 참가자" };
+				int selectedRole = JOptionPane.showOptionDialog(
+				        null, "미리보기에서 확인할 역할을 선택하세요.", "게임방 미리보기",
+				        JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+				        null, roleOptions, roleOptions[0]);
+
+				if (selectedRole == JOptionPane.CLOSED_OPTION) {
+				    frame.dispose();
+				    return;
+				}
+
+				String previewNickname = selectedRole == 0 ? "그림왕" : "그림친구";
 				GameRoomPanel previewRoom =
-				        new GameRoomPanel("1", "라운드 —", 0, samplePlayers, sampleChat, "그림왕");
+				        new GameRoomPanel("1", "라운드 —", 0, samplePlayers, sampleChat, previewNickname);
 
 				previewRoom.setDrawingAllowed(false);
 				
+				int totalRounds = 12;
+				int roundSeconds = 140;
+				List<String> previewWords = List.of(
+				        "해바라기", "소방차", "아이스크림", "자전거", "비행기", "강아지", "무지개",
+				        "눈사람", "우산", "카메라", "냉장고", "붕어빵", "시계");
+
+				JButton previewAbortButton = new JButton("인원 부족 종료 미리보기");
+				previewAbortButton.setEnabled(false);
+
 				Timer previewTransitionTimer = new Timer(3000, null);
 				previewTransitionTimer.setRepeats(false);
 
 				Timer previewTimer = new Timer(1000, event -> {
+				    Timer countdown = (Timer) event.getSource();
+				    int roundNumber = previewRoom.currentRoundNumber;
 				    int remainingSeconds = previewRoom.timeBar.getValue() - 1;
 				    previewRoom.updateRemainingTime(remainingSeconds);
 
-				    if (previewRoom.currentRoundNumber == 1) {
+				    boolean allCorrect = roundNumber == 1 && remainingSeconds == 131;
+
+				    if (roundNumber == 1) {
 				        if (remainingSeconds == 137) {
 				            previewRoom.showCorrectAnswer("스케치왕", 1, 100);
 				            previewRoom.updateScores(Map.of("그림왕", 20, "스케치왕", 100));
 				        } else if (remainingSeconds == 134) {
 				            previewRoom.showCorrectAnswer("그림친구", 2, 80);
 				            previewRoom.updateScores(Map.of("그림왕", 40, "스케치왕", 100, "그림친구", 80));
-				        } else if (remainingSeconds == 131) {
+				        } else if (allCorrect) {
 				            previewRoom.showCorrectAnswer("낙서왕", 3, 60);
 				            previewRoom.updateScores(Map.of("그림왕", 60, "스케치왕", 100, "그림친구", 80, "낙서왕", 60));
-				            ((Timer) event.getSource()).stop();
-				            previewRoom.showRoundEnd("해바라기", 3);
-				            previewTransitionTimer.restart();
 				        }
-				    } else if ("스케치왕".equals(previewRoom.currentDrawerNickname)) {
+				    } else if (roundNumber == 2 && "스케치왕".equals(previewRoom.currentDrawerNickname)) {
 				        if (remainingSeconds == 137) {
 				            previewRoom.showCorrectAnswer("그림왕", 1, 100);
 				            previewRoom.updateScores(Map.of("그림왕", 160, "스케치왕", 120, "그림친구", 80, "낙서왕", 60));
 				        } else if (remainingSeconds == 134) {
-				            ((Timer) event.getSource()).stop();
-
+				            countdown.stop();
 				            DefaultTableModel playerModel = (DefaultTableModel) previewRoom.playerTable.getModel();
 				            playerModel.removeRow(1);
 
 				            previewRoom.showRoundCancelled(3);
 				            previewRoom.updateScores(Map.of("그림왕", 60, "그림친구", 80, "낙서왕", 60));
+				            previewTransitionTimer.setActionCommand("retry");
+				            previewTransitionTimer.restart();
+				            return;
+				        }
+				    }
+
+				    if (remainingSeconds <= 0 || allCorrect) {
+				        countdown.stop();
+				        String answer = event.getActionCommand();
+
+				        if (roundNumber == totalRounds) {
+				            previewAbortButton.setEnabled(false);
+				            previewRoom.showRoundEnd(answer, 0);
+				            previewRoom.showGameCompleted(previewRoom.buildPreviewStandings(), answer);
+				        } else {
+				            previewRoom.showRoundEnd(answer, 3);
+				            previewTransitionTimer.setActionCommand("next");
 				            previewTransitionTimer.restart();
 				        }
-				    } else if (remainingSeconds <= 0) {
-				        ((Timer) event.getSource()).stop();
-				        previewRoom.showRoundEnd("아이스크림", 0);
 				    }
 				});
 
 				previewTransitionTimer.addActionListener(event -> {
-				    if (previewRoom.currentRoundNumber == 1) {
-				        previewRoom.startRound(2, 12, "스케치왕", 140);
-				        previewRoom.showWordLength(3);
+				    boolean retry = "retry".equals(event.getActionCommand());
+				    int nextRound = previewRoom.currentRoundNumber + (retry ? 0 : 1);
+				    int playerCount = previewRoom.playerTable.getRowCount();
+				    int drawerRow = (nextRound - 1) % playerCount;
+				    String drawer = (String) previewRoom.playerTable.getValueAt(drawerRow, 0);
+
+				    int wordIndex = nextRound - 1;
+				    if (playerCount < samplePlayers.length) {
+				        wordIndex++;
+				    }
+				    String word = previewWords.get(wordIndex);
+
+				    previewRoom.startRound(nextRound, totalRounds, drawer, roundSeconds);
+				    if (previewNickname.equals(drawer)) {
+				        previewRoom.showWord(word);
 				    } else {
-				        previewRoom.startRound(2, 12, "그림친구", 140);
-				        previewRoom.showWordLength(5);
+				        previewRoom.showWordLength(word.length());
 				    }
 
+				    previewTimer.setActionCommand(word);
 				    previewTimer.restart();
 				});
 
@@ -465,20 +540,20 @@ public class GameRoomPanel extends JPanel {
 				    }
 				});
 
-				JButton previewAbortButton = new JButton("인원 부족 종료 미리보기");
-				previewAbortButton.setEnabled(false);
-
 				previewRoom.setStartGameAction(() -> {
 				    previewAbortButton.setEnabled(true);
 				    previewRoom.updateScores(Map.of());
-				    previewRoom.startRound(1, 12, "그림왕", 140);
-				    previewRoom.showWord("해바라기");
+
+				    String firstWord = previewWords.get(0);
+				    previewRoom.startRound(1, totalRounds, "그림왕", roundSeconds);
+				    previewRoom.showWord(firstWord);
+				    previewTimer.setActionCommand(firstWord);
 				    previewTimer.restart();
 				});
 				
 			previewRoom.appendSystemMessage("그림친구님이 입장했습니다.");
 			previewRoom.setChatSender(body -> {
-			    previewRoom.appendChatMessage("그림왕", body);
+				previewRoom.appendChatMessage(previewNickname, body);
 			    return CompletableFuture.completedFuture(null);
 			});
 
