@@ -82,7 +82,7 @@ public class ClientMain {
 					JOptionPane.showMessageDialog(frame, "포트는 1~65535 사이여야 합니다.");
 					return;
 				}
-				String nickname = nicknameField.getText();
+				String nickname = nicknameField.getText().trim();
 
 				System.out.println("서버 IP = " + ip);
 				System.out.println("포트 = " + port);
@@ -276,6 +276,17 @@ public class ClientMain {
 								    continue;
 								}
 								String[] parts = roomResponse.split("\\|", -1);
+								if ("PLAYERS".equals(parts[0])) {
+								    String[] players = Arrays.copyOfRange(parts, 1, parts.length);
+
+								    SwingUtilities.invokeLater(() -> {
+								        if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
+								            gameRoom.updatePlayers(players);
+								        }
+								    });
+
+								    continue;
+								}
 								if ("LOBBY_USERS".equals(parts[0])) {
 									String[] users = Arrays.copyOfRange(parts, 1, parts.length);
 
@@ -287,8 +298,8 @@ public class ClientMain {
 									String roomId = parts[1];
 
 									SwingUtilities.invokeLater(() -> {
-										GameRoomPanel gameRoom = new GameRoomPanel(roomId);
-
+										GameRoomPanel gameRoom = new GameRoomPanel(roomId, nickname);
+										
 										gameRoom.setChatSender(body -> {
 										    try {
 										        return CompletableFuture.runAsync(() -> {

@@ -60,8 +60,9 @@ public class GameRoomPanel extends JPanel {
 	    this.chatSender = chatSender;
 	}
 
-	public GameRoomPanel(String roomId) {
-	    this(roomId, "라운드 —", 0, new Object[0][0], "", "");
+	public GameRoomPanel(String roomId, String localNickname) {
+	    this(roomId, "라운드 —", 0, new Object[0][0], "", localNickname);
+	    setDrawingAllowed(false);
 	}
 
 	private GameRoomPanel(String roomId, String roundText, int remainingSeconds,
@@ -207,6 +208,28 @@ public class GameRoomPanel extends JPanel {
 		sidePanel.add(chatPanel, BorderLayout.CENTER);
 
 		add(sidePanel, BorderLayout.EAST);
+	}
+	
+	void updatePlayers(String[] nicknames) {
+	    Map<String, Integer> currentScores = new HashMap<>();
+
+	    for (int row = 0; row < playerTable.getRowCount(); row++) {
+	        String nickname = (String) playerTable.getValueAt(row, 0);
+	        int score = (Integer) playerTable.getValueAt(row, 1);
+	        currentScores.put(nickname, score);
+	    }
+
+	    DefaultTableModel playerModel = (DefaultTableModel) playerTable.getModel();
+	    playerModel.setRowCount(0);
+
+	    for (String nickname : nicknames) {
+	        playerModel.addRow(new Object[] {
+	            nickname, currentScores.getOrDefault(nickname, 0), ""
+	        });
+	    }
+
+	    updatePlayerRoles();
+	    updateStartButton();
 	}
 	
 	void setStartGameAction(Runnable startGameAction) {
