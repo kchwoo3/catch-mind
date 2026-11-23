@@ -15,7 +15,6 @@ public class RoomManager {
     private final Map<Integer, Room> rooms = new ConcurrentHashMap<>();
     private final AtomicInteger roomIdGenerator = new AtomicInteger(1);
 
-    // 방 생성 및 생성자 자동 입장
     public Room createRoom(String roomName, ClientHandler creator) {
         int roomId = roomIdGenerator.getAndIncrement();
         Room room = new Room(roomId, roomName);
@@ -28,7 +27,6 @@ public class RoomManager {
         return rooms.get(roomId);
     }
 
-    // 방 입장 검증 및 참가자 등록 (정원 4명 제한, 게임 진행 중 차단)
     public JoinResult joinRoom(int roomId, ClientHandler player) {
         Room room = rooms.get(roomId);
         if (room == null) {
@@ -51,7 +49,6 @@ public class RoomManager {
         }
     }
 
-    // 방 퇴장, 빈 방 자동 정리 및 방장 위임 처리
     public void leaveRoom(int roomId, ClientHandler player) {
         Room room = rooms.get(roomId);
         if (room == null) {
@@ -60,12 +57,14 @@ public class RoomManager {
 
         synchronized (room) {
             ClientHandler previousHost = room.getHost();
+            boolean wasDrawer = room.isCurrentDrawer(player);
             boolean removed = room.removePlayer(player);
             if (!removed) {
                 return;
             }
 
             if (room.isEmpty()) {
+                room.shutdownScheduler();
                 rooms.remove(roomId);
                 return;
             }
@@ -80,10 +79,11 @@ public class RoomManager {
             if (previousHost != null && previousHost.equals(player) && newHost != null && newHost.getNickname() != null) {
                 room.broadcast("CHAT_NOTIFY|" + newHost.getNickname() + "님이 새로운 방장이 되었습니다.");
             }
+
+            room.onPlayerRemoved(player, wasDrawer);
         }
     }
 
-    // 대기실 방 목록 프로토콜 생성: ROOMS|방ID|방이름|... (방 없으면 ROOMS)
     public String buildRoomsMessage() {
         StringBuilder sb = new StringBuilder("ROOMS");
         for (Room room : rooms.values()) {

@@ -31,7 +31,7 @@ public class ClientHandler implements Runnable {
 
     private int userId = -1;
     private String nickname = null;
-    private int currentRoomId = -1; // -1이면 대기실 상태
+    private int currentRoomId = -1;
 
     public ClientHandler(Socket socket, SessionManager sessionManager, ServerMain serverGui) {
         this.socket = socket;
@@ -115,10 +115,10 @@ public class ClientHandler implements Runnable {
                 String roomName = tokens[1].trim();
                 Room created = roomManager.createRoom(roomName, this);
                 this.currentRoomId = created.getRoomId();
-                
 
                 sendMessage("ROOM_CREATED|" + created.getRoomId());
                 created.broadcast(created.buildPlayersMessage());
+                created.broadcast(created.buildScoresMessage());
 
                 sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
                 sessionManager.broadcastLobbyUsers();
@@ -162,6 +162,7 @@ public class ClientHandler implements Runnable {
                 sendMessage("JOIN_OK|" + targetRoomId);
                 if (room != null) {
                     room.broadcast(room.buildPlayersMessage());
+                    room.broadcast(room.buildScoresMessage());
                     room.broadcast("CHAT_NOTIFY|" + nickname + "님이 입장했습니다.");
                 }
                 sessionManager.broadcastLobbyUsers();
@@ -185,6 +186,24 @@ public class ClientHandler implements Runnable {
                 sessionManager.broadcastLobbyUsers();
             }
 
+            case "START_GAME" -> {
+                if (this.currentRoomId == -1) {
+                    sendMessage("ERROR|NOT_IN_ROOM");
+                    return;
+                }
+                Room room = roomManager.getRoom(this.currentRoomId);
+                if (room == null) {
+                    sendMessage("ERROR|NOT_IN_ROOM");
+                    return;
+                }
+                String error = room.startGame(this);
+                if (error != null) {
+                    sendMessage(error);
+                } else if (serverGui != null) {
+                    serverGui.appendLog("[" + room.getRoomName() + "] 게임 시작 (" + nickname + ")");
+                }
+            }
+
             case "CHAT" -> {
                 if (this.currentRoomId == -1) {
                     sendMessage("ERROR|NOT_IN_ROOM");
@@ -193,7 +212,10 @@ public class ClientHandler implements Runnable {
                 if (tokens.length < 2) return;
                 Room room = roomManager.getRoom(this.currentRoomId);
                 if (room != null) {
-                    room.broadcast("CHAT|" + this.nickname + "|" + tokens[1]);
+                    boolean handledAsCorrect = room.handleChatGuess(this, tokens[1]);
+                    if (!handledAsCorrect) {
+                        room.broadcast("CHAT|" + this.nickname + "|" + tokens[1]);
+                    }
                 }
             }
 
@@ -205,7 +227,6 @@ public class ClientHandler implements Runnable {
         }
     }
 
-    // DRAW|<roundId>|<x1>|<y1>|<x2>|<y2>|<색상>|<굵기>
     private void handleDraw(String message) {
         if (this.currentRoomId == -1) {
             sendMessage("ERROR|NOT_IN_ROOM");
@@ -238,20 +259,17 @@ public class ClientHandler implements Runnable {
 
         String color = parts[6].trim().toUpperCase();
 
-        // 게임 진행 상태, 라운드 번호, 현재 출제자 일치 여부 검증
         if (!room.isPlaying() || roundId != room.getCurrentRound() || !room.isCurrentDrawer(this)) {
             sendMessage("ERROR|INVALID_DRAW_REQUEST");
             return;
         }
 
-        // 가상 좌표 범위 검증 (0~800, 0~500)
         if (x1 < 0 || x1 > CANVAS_MAX_X || x2 < 0 || x2 > CANVAS_MAX_X
                 || y1 < 0 || y1 > CANVAS_MAX_Y || y2 < 0 || y2 > CANVAS_MAX_Y) {
             sendMessage("ERROR|INVALID_DRAW_REQUEST");
             return;
         }
 
-        // 색상 9종 및 펜 굵기(2, 4, 8) / 지우개(#FFFFFF + 16) 조합 검증
         boolean validPen = ALLOWED_COLORS.contains(color) && ALLOWED_PEN_WIDTHS.contains(width);
         boolean validEraser = ERASER_COLOR.equals(color) && width == ERASER_WIDTH;
         if (!validPen && !validEraser) {
@@ -262,7 +280,6 @@ public class ClientHandler implements Runnable {
         room.broadcast("DRAW_NOTIFY|" + roundId + "|" + x1 + "|" + y1 + "|" + x2 + "|" + y2 + "|" + color + "|" + width);
     }
 
-    // CLEAR|<roundId>
     private void handleClear(String message) {
         if (this.currentRoomId == -1) {
             sendMessage("ERROR|NOT_IN_ROOM");
