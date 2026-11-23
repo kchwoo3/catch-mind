@@ -5,9 +5,12 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class Room {
+    public static final int MAX_PLAYERS = 4;
+
     private final int roomId;
     private final String roomName;
     private final List<ClientHandler> players = new CopyOnWriteArrayList<>();
+    private volatile boolean playing = false;
 
     public Room(int roomId, String roomName) {
         this.roomId = roomId;
@@ -22,14 +25,34 @@ public class Room {
         return roomName;
     }
 
+    public boolean isPlaying() {
+        return playing;
+    }
+
+    public void setPlaying(boolean playing) {
+        this.playing = playing;
+    }
+
+    public boolean isFull() {
+        return players.size() >= MAX_PLAYERS;
+    }
+
+    public ClientHandler getHost() {
+        return players.isEmpty() ? null : players.get(0);
+    }
+
+    public boolean isHost(ClientHandler client) {
+        return client != null && client.equals(getHost());
+    }
+
     public void addPlayer(ClientHandler player) {
         if (!players.contains(player)) {
             players.add(player);
         }
     }
 
-    public void removePlayer(ClientHandler player) {
-        players.remove(player);
+    public boolean removePlayer(ClientHandler player) {
+        return players.remove(player);
     }
 
     public boolean isEmpty() {
@@ -47,7 +70,7 @@ public class Room {
         }
     }
 
-    // 방 참가자 목록 프로토콜 문자열 생성
+    // 방 참가자 목록 프로토콜 문자열 생성 (첫 번째 항목이 항상 방장)
     public String buildPlayersMessage() {
         StringBuilder sb = new StringBuilder("PLAYERS");
         for (ClientHandler player : players) {

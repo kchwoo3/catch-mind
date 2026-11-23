@@ -5,6 +5,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class RoomManager {
+    public enum JoinResult {
+        SUCCESS,
+        ROOM_NOT_FOUND,
+        GAME_IN_PROGRESS,
+        ROOM_FULL
+    }
+
     private final Map<Integer, Room> rooms = new ConcurrentHashMap<>();
     private final AtomicInteger roomIdGenerator = new AtomicInteger(1);
 
@@ -21,15 +28,57 @@ public class RoomManager {
         return rooms.get(roomId);
     }
 
-    // 방 퇴장 및 빈 방 자동 정리
+    // 방 입장 검증 및 참가자 등록 (정원 4명 제한, 게임 진행 중 차단)
+    public JoinResult joinRoom(int roomId, ClientHandler player) {
+        Room room = rooms.get(roomId);
+        if (room == null) {
+            return JoinResult.ROOM_NOT_FOUND;
+        }
+
+        synchronized (room) {
+            if (!rooms.containsKey(roomId)) {
+                return JoinResult.ROOM_NOT_FOUND;
+            }
+            if (room.isPlaying()) {
+                return JoinResult.GAME_IN_PROGRESS;
+            }
+            if (room.isFull()) {
+                return JoinResult.ROOM_FULL;
+            }
+
+            room.addPlayer(player);
+            return JoinResult.SUCCESS;
+        }
+    }
+
+    // 방 퇴장, 빈 방 자동 정리 및 방장 위임 처리
     public void leaveRoom(int roomId, ClientHandler player) {
         Room room = rooms.get(roomId);
-        if (room != null) {
-            room.removePlayer(player);
+        if (room == null) {
+            return;
+        }
+
+        synchronized (room) {
+            ClientHandler previousHost = room.getHost();
+            boolean removed = room.removePlayer(player);
+            if (!removed) {
+                return;
+            }
+
             if (room.isEmpty()) {
                 rooms.remove(roomId);
-            } else {
-                room.broadcast(room.buildPlayersMessage());
+                return;
+            }
+
+            ClientHandler newHost = room.getHost();
+            room.broadcast(room.buildPlayersMessage());
+
+            if (player.getNickname() != null) {
+                room.broadcast("CHAT_NOTIFY|" + player.getNickname() + "님이 퇴장했습니다.");
+            }
+
+            if (previousHost != null && previousHost.equals(player) && newHost != null && newHost.getNickname() != null) {
+                room.broadcast("CHAT_NOTIFY|" + newHost.getNickname() + "님이 새로운 방장이 되었습니다.");
             }
         }
     }
