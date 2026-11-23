@@ -2,12 +2,15 @@ package com.catchmind.client;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
@@ -24,9 +27,13 @@ import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.table.DefaultTableModel;
-import java.awt.Component;
+import java.util.HashMap;
+import java.util.List;
+import javax.swing.JOptionPane;
 
 public class GameRoomPanel extends JPanel {
+	record FinalStanding(String nickname, int score, int rank) {
+	}
 	private final JTextArea chatHistory = new JTextArea();
 	private final JButton startGameButton = new JButton("게임 시작");
 	private final String localNickname;
@@ -36,9 +43,11 @@ public class GameRoomPanel extends JPanel {
 	private final JLabel timeLabel;
 	private final JProgressBar timeBar;
 	private final DrawingPanel canvasPanel;
+	private final JLabel canvasNoticeLabel = new JLabel();
 	private final JPanel drawingTools;
 	private boolean waitingForGame = true;
 	private String currentDrawerNickname;
+	private int currentRoundNumber;
 	private Runnable startGameAction;
 	private Function<String, CompletableFuture<Void>> chatSender = body -> {
 	    System.out.println("CHAT|" + body);
@@ -71,6 +80,11 @@ public class GameRoomPanel extends JPanel {
 		for (JLabel label : new JLabel[] { roomLabel, roundLabel, wordLabel }) {
 		    label.setFont(label.getFont().deriveFont(Font.BOLD, 16f));
 		    label.setForeground(new Color(0x16366D));
+		    canvasNoticeLabel.setOpaque(true);
+		    canvasNoticeLabel.setBackground(Color.WHITE);
+		    canvasNoticeLabel.setBorder(BorderFactory.createCompoundBorder(
+		            BorderFactory.createLineBorder(new Color(0xBFE7FF)),
+		            BorderFactory.createEmptyBorder(12, 18, 12, 18)));
 		    statusPanel.add(label);
 		}
 
@@ -96,6 +110,11 @@ public class GameRoomPanel extends JPanel {
 
 		canvasPanel = new DrawingPanel();
 		canvasPanel.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
+		canvasPanel.setLayout(new GridBagLayout());
+		canvasNoticeLabel.setFont(canvasNoticeLabel.getFont().deriveFont(Font.BOLD, 18f));
+		canvasNoticeLabel.setForeground(new Color(0x16366D));
+		canvasNoticeLabel.setVisible(false);
+		canvasPanel.add(canvasNoticeLabel);
 
 		drawingTools = canvasPanel.createToolsPanel();
 		drawingTools.setOpaque(false);
@@ -216,17 +235,38 @@ public class GameRoomPanel extends JPanel {
 	
 	void startRound(int roundNumber, int totalRounds, String drawerNickname, int roundSeconds) {
 	    setWaitingForGame(false);
+	    currentRoundNumber = roundNumber;
 	    currentDrawerNickname = drawerNickname;
+	    canvasNoticeLabel.setVisible(false);
 	    canvasPanel.clearDrawing();
 	    setDrawingAllowed(localNickname.equals(currentDrawerNickname));
 	    wordLabel.setText("제시어 —");
 	    roundLabel.setText("라운드 " + roundNumber + " / " + totalRounds);
 	    timeBar.setMaximum(roundSeconds);
 	    updateRemainingTime(roundSeconds);
+	    updatePlayerRoles();
+	}
 
+	void showRoundEnd(String answer, int transitionSeconds) {
+	    currentDrawerNickname = null;
+	    setDrawingAllowed(false);
+	    updatePlayerRoles();
+	    wordLabel.setText("정답 " + answer);
+	    timeLabel.setText("라운드 종료");
+
+	    String notice = transitionSeconds > 0
+	            ? "라운드가 종료됐습니다. " + transitionSeconds + "초 후 다음 라운드가 시작됩니다."
+	            : "라운드가 종료됐습니다.";
+
+	    canvasNoticeLabel.setText(notice);
+	    canvasNoticeLabel.setVisible(true);
+	}
+
+	private void updatePlayerRoles() {
 	    for (int row = 0; row < playerTable.getRowCount(); row++) {
 	        boolean isHost = row == 0;
-	        boolean isDrawer = drawerNickname.equals(playerTable.getValueAt(row, 0));
+	        boolean isDrawer = currentDrawerNickname != null
+	                && currentDrawerNickname.equals(playerTable.getValueAt(row, 0));
 	        String role = isHost ? "방장" : "";
 
 	        if (isDrawer) {
@@ -235,6 +275,19 @@ public class GameRoomPanel extends JPanel {
 
 	        playerTable.setValueAt(role, row, 2);
 	    }
+	}
+	
+	void showRoundCancelled(int transitionSeconds) {
+	    currentDrawerNickname = null;
+	    setDrawingAllowed(false);
+	    updatePlayerRoles();
+	    canvasPanel.clearDrawing();
+	    wordLabel.setText("제시어 —");
+	    timeLabel.setText("라운드 취소");
+	    timeBar.setValue(0);
+	    canvasNoticeLabel.setText("출제자가 퇴장했습니다. " + transitionSeconds
+	            + "초 후 다음 출제자로 넘어갑니다.");
+	    canvasNoticeLabel.setVisible(true);
 	}
 	
 	void showWord(String word) {
@@ -252,6 +305,69 @@ public class GameRoomPanel extends JPanel {
 	void updateRemainingTime(int remainingSeconds) {
 	    timeBar.setValue(remainingSeconds);
 	    timeLabel.setText("남은 시간 " + timeBar.getValue() + "초");
+	}
+	
+	void showCorrectAnswer(String nickname, int rank, int earnedPoints) {
+	    appendSystemMessage(nickname + "님이 " + rank + "번째로 정답을 맞혔습니다. (+"
+	            + earnedPoints + "점)");
+	}
+
+	void updateScores(Map<String, Integer> scores) {
+	    for (int row = 0; row < playerTable.getRowCount(); row++) {
+	        String nickname = (String) playerTable.getValueAt(row, 0);
+	        playerTable.setValueAt(scores.getOrDefault(nickname, 0), row, 1);
+	    }
+	}
+	
+	void showGameCompleted(List<FinalStanding> standings, String lastAnswer) {
+	    Map<String, Integer> finalScores = new HashMap<>();
+	    Map<Integer, Integer> rankCounts = new HashMap<>();
+
+	    for (FinalStanding standing : standings) {
+	        finalScores.put(standing.nickname(), standing.score());
+	        rankCounts.merge(standing.rank(), 1, Integer::sum);
+	    }
+
+	    StringBuilder message = new StringBuilder("마지막 제시어 ")
+	            .append(lastAnswer).append("\n\n");
+
+	    for (FinalStanding standing : standings) {
+	        if (rankCounts.get(standing.rank()) > 1) {
+	            message.append("공동 ");
+	        }
+
+	        message.append(standing.rank()).append("위  ")
+	                .append(standing.nickname()).append("  ")
+	                .append(standing.score()).append("점\n");
+	    }
+
+	    updateScores(finalScores);
+	    returnToWaiting();
+	    JOptionPane.showMessageDialog(this, message.toString(), "최종 결과",
+	            JOptionPane.INFORMATION_MESSAGE);
+	}
+	
+	void showGameAbortedForTooFewPlayers() {
+	    updateScores(Map.of());
+	    canvasPanel.clearDrawing();
+	    returnToWaiting();
+
+	    JOptionPane.showMessageDialog(this,
+	            "참가자가 2명 이하가 되어 이번 게임을 종료합니다.",
+	            "게임 종료", JOptionPane.WARNING_MESSAGE);
+	}
+
+	private void returnToWaiting() {
+	    currentRoundNumber = 0;
+	    currentDrawerNickname = null;
+	    canvasNoticeLabel.setVisible(false);
+	    wordLabel.setText("제시어 —");
+	    roundLabel.setText("라운드 —");
+	    timeLabel.setText("남은 시간 —");
+	    timeBar.setValue(0);
+	    setDrawingAllowed(false);
+	    updatePlayerRoles();
+	    setWaitingForGame(true);
 	}
 	
 	void appendChatMessage(String nickname, String body) {
@@ -278,7 +394,8 @@ public class GameRoomPanel extends JPanel {
 			Object[][] samplePlayers = {
 				    { "그림왕", 0 },
 				    { "스케치왕", 0 },
-				    { "그림친구", 0 }
+				    { "그림친구", 0 },
+				    { "낙서왕", 0 }
 				};
 				String sampleChat = "그림왕: 안녕하세요!\n스케치왕: 반가워요!";
 
@@ -287,33 +404,75 @@ public class GameRoomPanel extends JPanel {
 
 				previewRoom.setDrawingAllowed(false);
 				
+				Timer previewTransitionTimer = new Timer(3000, null);
+				previewTransitionTimer.setRepeats(false);
+
 				Timer previewTimer = new Timer(1000, event -> {
 				    int remainingSeconds = previewRoom.timeBar.getValue() - 1;
 				    previewRoom.updateRemainingTime(remainingSeconds);
 
-				    if (remainingSeconds <= 0) {
-				        previewRoom.setDrawingAllowed(false);
+				    if (previewRoom.currentRoundNumber == 1) {
+				        if (remainingSeconds == 137) {
+				            previewRoom.showCorrectAnswer("스케치왕", 1, 100);
+				            previewRoom.updateScores(Map.of("그림왕", 20, "스케치왕", 100));
+				        } else if (remainingSeconds == 134) {
+				            previewRoom.showCorrectAnswer("그림친구", 2, 80);
+				            previewRoom.updateScores(Map.of("그림왕", 40, "스케치왕", 100, "그림친구", 80));
+				        } else if (remainingSeconds == 131) {
+				            previewRoom.showCorrectAnswer("낙서왕", 3, 60);
+				            previewRoom.updateScores(Map.of("그림왕", 60, "스케치왕", 100, "그림친구", 80, "낙서왕", 60));
+				            ((Timer) event.getSource()).stop();
+				            previewRoom.showRoundEnd("해바라기", 3);
+				            previewTransitionTimer.restart();
+				        }
+				    } else if ("스케치왕".equals(previewRoom.currentDrawerNickname)) {
+				        if (remainingSeconds == 137) {
+				            previewRoom.showCorrectAnswer("그림왕", 1, 100);
+				            previewRoom.updateScores(Map.of("그림왕", 160, "스케치왕", 120, "그림친구", 80, "낙서왕", 60));
+				        } else if (remainingSeconds == 134) {
+				            ((Timer) event.getSource()).stop();
+
+				            DefaultTableModel playerModel = (DefaultTableModel) previewRoom.playerTable.getModel();
+				            playerModel.removeRow(1);
+
+				            previewRoom.showRoundCancelled(3);
+				            previewRoom.updateScores(Map.of("그림왕", 60, "그림친구", 80, "낙서왕", 60));
+				            previewTransitionTimer.restart();
+				        }
+				    } else if (remainingSeconds <= 0) {
 				        ((Timer) event.getSource()).stop();
+				        previewRoom.showRoundEnd("아이스크림", 0);
 				    }
+				});
+
+				previewTransitionTimer.addActionListener(event -> {
+				    if (previewRoom.currentRoundNumber == 1) {
+				        previewRoom.startRound(2, 12, "스케치왕", 140);
+				        previewRoom.showWordLength(3);
+				    } else {
+				        previewRoom.startRound(2, 12, "그림친구", 140);
+				        previewRoom.showWordLength(5);
+				    }
+
+				    previewTimer.restart();
 				});
 
 				frame.addWindowListener(new WindowAdapter() {
 				    @Override
 				    public void windowClosed(WindowEvent event) {
 				        previewTimer.stop();
+				        previewTransitionTimer.stop();
 				    }
 				});
 
+				JButton previewAbortButton = new JButton("인원 부족 종료 미리보기");
+				previewAbortButton.setEnabled(false);
+
 				previewRoom.setStartGameAction(() -> {
-				    String sampleDrawer = "그림왕";
-				    previewRoom.startRound(1, 12, sampleDrawer, 140);
-
-				    if (previewRoom.localNickname.equals(sampleDrawer)) {
-				        previewRoom.showWord("해바라기");
-				    } else {
-				        previewRoom.showWordLength(4);
-				    }
-
+				    previewAbortButton.setEnabled(true);
+				    previewRoom.updateScores(Map.of());
+				    previewRoom.startRound(1, 12, "그림왕", 140);
+				    previewRoom.showWord("해바라기");
 				    previewTimer.restart();
 				});
 				
@@ -323,7 +482,47 @@ public class GameRoomPanel extends JPanel {
 			    return CompletableFuture.completedFuture(null);
 			});
 
-			frame.setContentPane(previewRoom);
+			JButton previewFinishButton = new JButton("12라운드 완료 미리보기");
+			previewFinishButton.addActionListener(event -> {
+				previewAbortButton.setEnabled(false);
+			    previewTimer.stop();
+			    previewTransitionTimer.stop();
+
+			    DefaultTableModel playerModel = (DefaultTableModel) previewRoom.playerTable.getModel();
+			    playerModel.setRowCount(0);
+			    for (Object[] player : samplePlayers) {
+			        playerModel.addRow(player);
+			    }
+
+			    previewRoom.startRound(12, 12, "그림왕", 140);
+			    previewRoom.showRoundEnd("아이스크림", 0);
+			    previewRoom.showGameCompleted(List.of(
+			            new FinalStanding("그림왕", 720, 1),
+			            new FinalStanding("스케치왕", 720, 1),
+			            new FinalStanding("그림친구", 500, 3),
+			            new FinalStanding("낙서왕", 500, 3)), "아이스크림");
+			});
+
+			previewAbortButton.addActionListener(event -> {
+			    previewTimer.stop();
+			    previewTransitionTimer.stop();
+			    previewAbortButton.setEnabled(false);
+
+			    DefaultTableModel playerModel =
+			            (DefaultTableModel) previewRoom.playerTable.getModel();
+			    playerModel.setRowCount(2);
+
+			    previewRoom.showGameAbortedForTooFewPlayers();
+			});
+
+			JPanel previewControls = new JPanel();
+			previewControls.add(previewFinishButton);
+			previewControls.add(previewAbortButton);
+
+			JPanel previewContent = new JPanel(new BorderLayout());
+			previewContent.add(previewRoom, BorderLayout.CENTER);
+			previewContent.add(previewControls, BorderLayout.SOUTH);
+			frame.setContentPane(previewContent);
 			frame.setSize(1080, 660);
 			frame.setLocationRelativeTo(null);
 			frame.setVisible(true);
