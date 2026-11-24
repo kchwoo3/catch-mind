@@ -53,6 +53,7 @@ public class DrawingPanel extends JPanel {
 	private Color penColor = Color.BLACK;
 	private int penWidth = 2;
 	private boolean eraserMode;
+	private boolean drawingAllowed = true;
 
 	public DrawingPanel() {
 		setBackground(Color.WHITE);
@@ -60,8 +61,8 @@ public class DrawingPanel extends JPanel {
 		MouseAdapter mouse = new MouseAdapter() {
 			@Override
 			public void mousePressed(MouseEvent event) {
-				if (SwingUtilities.isLeftMouseButton(event)) {
-					previousPoint = event.getPoint();
+				if (drawingAllowed && SwingUtilities.isLeftMouseButton(event)) {
+				    previousPoint = event.getPoint();
 				}
 			}
 
@@ -109,7 +110,10 @@ public class DrawingPanel extends JPanel {
 			pen.dispose();
 		}
 	}
-
+	void setDrawingAllowed(boolean drawingAllowed) {
+	    this.drawingAllowed = drawingAllowed;
+	    previousPoint = null;
+	}
 	public void clearDrawing() {
 		segments.clear();
 		previousPoint = null;
