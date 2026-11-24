@@ -7,9 +7,21 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
 
 public class ClientHandler implements Runnable {
     private static final RoomManager roomManager = new RoomManager();
+
+    private static final int CANVAS_MAX_X = 799;
+    private static final int CANVAS_MAX_Y = 499;
+    private static final Set<String> ALLOWED_COLORS = Set.of(
+        "#FF0000", "#FFA500", "#FFFF00",
+        "#008000", "#0000FF", "#000080",
+        "#800080", "#FFFFFF", "#000000"
+    );
+    private static final Set<Integer> ALLOWED_PEN_WIDTHS = Set.of(2, 4, 8);
+    private static final int ERASER_WIDTH = 16;
+    private static final String ERASER_COLOR = "#FFFFFF";
 
     private final Socket socket;
     private final SessionManager sessionManager;
@@ -63,6 +75,11 @@ public class ClientHandler implements Runnable {
                 }
 
                 String requestedNickname = tokens[1].trim();
+                if (requestedNickname.contains("|") || requestedNickname.contains("\n") || requestedNickname.contains("\r")) {
+                    sendMessage("ERROR|INVALID_NICKNAME");
+                    return;
+                }
+
                 int assignedId = sessionManager.registerUser(requestedNickname, this);
 
                 if (assignedId == -1) {
@@ -83,7 +100,6 @@ public class ClientHandler implements Runnable {
 
             case "LIST_ROOMS" -> {
                 sendMessage(roomManager.buildRoomsMessage());
-                sessionManager.broadcastLobbyUsers();
             }
 
             case "CREATE_ROOM" -> {
@@ -101,14 +117,20 @@ public class ClientHandler implements Runnable {
                 }
 
                 String roomName = tokens[1].trim();
+                if (roomName.contains("|") || roomName.contains("\n") || roomName.contains("\r")) {
+                    sendMessage("ERROR|INVALID_ROOM_NAME");
+                    return;
+                }
+
                 Room created = roomManager.createRoom(roomName, this);
                 this.currentRoomId = created.getRoomId();
 
                 sendMessage("ROOM_CREATED|" + created.getRoomId());
-                created.broadcast(created.buildPlayersMessage());
-
-                sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
                 sessionManager.broadcastLobbyUsers();
+                sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
+
+                created.broadcast(created.buildPlayersMessage());
+                created.broadcast(created.buildScoresMessage());
 
                 if (serverGui != null) {
                     serverGui.appendLog(nickname + "님이 방 생성: [" + created.getRoomId() + "] " + roomName);
@@ -143,9 +165,9 @@ public class ClientHandler implements Runnable {
                     return;
                 }
 
-                Room room = roomManager.getRoom(targetRoomId);
                 sessionManager.broadcastLobbyUsers();
 
+                Room room = roomManager.getRoom(targetRoomId);
                 if (serverGui != null && room != null) {
                     serverGui.appendLog(nickname + "님이 [" + room.getRoomName() + "] 방에 입장했습니다.");
                 }
@@ -158,11 +180,29 @@ public class ClientHandler implements Runnable {
                 }
                 int prevRoomId = this.currentRoomId;
                 this.currentRoomId = -1;
-                roomManager.leaveRoom(prevRoomId, this);
 
                 sendMessage("LEAVE_OK");
-                sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
                 sessionManager.broadcastLobbyUsers();
+                roomManager.leaveRoom(prevRoomId, this);
+                sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
+            }
+
+            case "START_GAME" -> {
+                if (this.currentRoomId == -1) {
+                    sendMessage("ERROR|NOT_IN_ROOM");
+                    return;
+                }
+                Room room = roomManager.getRoom(this.currentRoomId);
+                if (room == null) {
+                    sendMessage("ERROR|NOT_IN_ROOM");
+                    return;
+                }
+                String error = room.startGame(this);
+                if (error != null) {
+                    sendMessage(error);
+                } else if (serverGui != null) {
+                    serverGui.appendLog("[" + room.getRoomName() + "] 게임 시작 (" + nickname + ")");
+                }
             }
 
             case "CHAT" -> {
@@ -173,12 +213,115 @@ public class ClientHandler implements Runnable {
                 if (tokens.length < 2) return;
                 Room room = roomManager.getRoom(this.currentRoomId);
                 if (room != null) {
-                    room.broadcast("CHAT|" + this.nickname + "|" + tokens[1]);
+                    boolean blockedOrCorrect = room.handleChatGuess(this, tokens[1]);
+                    if (!blockedOrCorrect) {
+                        room.broadcast("CHAT|" + this.nickname + "|" + tokens[1]);
+                    }
                 }
             }
 
+            case "DRAW" -> handleDraw(message);
+
+            case "CLEAR" -> handleClear(message);
+
             default -> sendMessage("ERROR|UNKNOWN_COMMAND");
         }
+    }
+
+    private void handleDraw(String message) {
+        if (this.currentRoomId == -1) {
+            sendMessage("ERROR|NOT_IN_ROOM");
+            return;
+        }
+        Room room = roomManager.getRoom(this.currentRoomId);
+        if (room == null) {
+            sendMessage("ERROR|NOT_IN_ROOM");
+            return;
+        }
+
+        String[] parts = message.split("\\|");
+        if (parts.length != 8) {
+            sendMessage("ERROR|INVALID_DRAW_REQUEST");
+            return;
+        }
+
+        int roundId, x1, y1, x2, y2, width;
+        try {
+            roundId = Integer.parseInt(parts[1].trim());
+            x1 = Integer.parseInt(parts[2].trim());
+            y1 = Integer.parseInt(parts[3].trim());
+            x2 = Integer.parseInt(parts[4].trim());
+            y2 = Integer.parseInt(parts[5].trim());
+            width = Integer.parseInt(parts[7].trim());
+        } catch (NumberFormatException e) {
+            sendMessage("ERROR|INVALID_DRAW_REQUEST");
+            return;
+        }
+
+        if (!room.isPlaying() || !room.isRoundActive() || roundId != room.getCurrentRound()) {
+            sendMessage("ERROR|ROUND_NOT_ACTIVE");
+            return;
+        }
+
+        if (!room.isCurrentDrawer(this)) {
+            sendMessage("ERROR|NOT_DRAWER");
+            return;
+        }
+
+        String color = parts[6].trim().toUpperCase();
+
+        if (x1 < 0 || x1 > CANVAS_MAX_X || x2 < 0 || x2 > CANVAS_MAX_X
+                || y1 < 0 || y1 > CANVAS_MAX_Y || y2 < 0 || y2 > CANVAS_MAX_Y) {
+            sendMessage("ERROR|INVALID_DRAW_REQUEST");
+            return;
+        }
+
+        boolean validPen = ALLOWED_COLORS.contains(color) && ALLOWED_PEN_WIDTHS.contains(width);
+        boolean validEraser = ERASER_COLOR.equals(color) && width == ERASER_WIDTH;
+        if (!validPen && !validEraser) {
+            sendMessage("ERROR|INVALID_DRAW_REQUEST");
+            return;
+        }
+
+        room.broadcast("DRAW_NOTIFY|" + roundId + "|" + x1 + "|" + y1 + "|" + x2 + "|" + y2 + "|" + color + "|" + width);
+    }
+
+    private void handleClear(String message) {
+        if (this.currentRoomId == -1) {
+            sendMessage("ERROR|NOT_IN_ROOM");
+            return;
+        }
+        Room room = roomManager.getRoom(this.currentRoomId);
+        if (room == null) {
+            sendMessage("ERROR|NOT_IN_ROOM");
+            return;
+        }
+
+        String[] parts = message.split("\\|");
+        if (parts.length != 2) {
+            sendMessage("ERROR|INVALID_DRAW_REQUEST");
+            return;
+        }
+
+        int roundId;
+        try {
+            roundId = Integer.parseInt(parts[1].trim());
+        } catch (NumberFormatException e) {
+            sendMessage("ERROR|INVALID_DRAW_REQUEST");
+            return;
+        }
+
+        if (!room.isPlaying() || !room.isRoundActive() || roundId != room.getCurrentRound()) {
+            sendMessage("ERROR|ROUND_NOT_ACTIVE");
+            return;
+        }
+
+        if (!room.isCurrentDrawer(this)) {
+            sendMessage("ERROR|NOT_DRAWER");
+            return;
+        }
+
+        room.broadcast("CLEAR_NOTIFY|" + roundId);
     }
 
     public void sendMessage(String message) {
@@ -204,17 +347,19 @@ public class ClientHandler implements Runnable {
     }
 
     private void cleanup() {
-        if (this.currentRoomId != -1) {
-            roomManager.leaveRoom(this.currentRoomId, this);
-            this.currentRoomId = -1;
-            sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
-        }
+        int prevRoomId = this.currentRoomId;
+        this.currentRoomId = -1;
+
         if (this.nickname != null) {
             sessionManager.removeUser(this.nickname);
             sessionManager.broadcastLobbyUsers();
             if (serverGui != null) {
                 serverGui.appendLog(this.nickname + "님이 퇴장했습니다.");
             }
+        }
+        if (prevRoomId != -1) {
+            roomManager.leaveRoom(prevRoomId, this);
+            sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
         }
         try {
             if (in != null) in.close();

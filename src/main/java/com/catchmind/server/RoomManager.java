@@ -9,7 +9,7 @@ public class RoomManager {
         SUCCESS,
         ROOM_NOT_FOUND,
         ROOM_FULL,
-        GAME_ALREADY_STARTED
+        GAME_IN_PROGRESS
     }
 
     private final Map<Integer, Room> rooms = new ConcurrentHashMap<>();
@@ -30,7 +30,7 @@ public class RoomManager {
         }
         synchronized (room) {
             if (room.isPlaying()) {
-                return JoinResult.GAME_ALREADY_STARTED;
+                return JoinResult.GAME_IN_PROGRESS;
             }
             if (room.isFull()) {
                 return JoinResult.ROOM_FULL;
@@ -39,6 +39,7 @@ public class RoomManager {
             player.setCurrentRoomId(roomId);
             player.sendMessage("JOIN_OK|" + roomId);
             room.broadcast(room.buildPlayersMessage());
+            room.broadcast(room.buildScoresMessage());
             room.broadcast("CHAT_NOTIFY|" + player.getNickname() + "님이 입장했습니다.");
             return JoinResult.SUCCESS;
         }
@@ -50,11 +51,21 @@ public class RoomManager {
 
         boolean becameEmpty;
         synchronized (room) {
+            ClientHandler prevHost = room.getHost();
             room.removePlayer(player);
             becameEmpty = room.isEmpty();
+
             if (!becameEmpty) {
+                ClientHandler newHost = room.getHost();
+                boolean hostChanged = (prevHost != null && prevHost.equals(player) && newHost != null);
+
                 room.broadcast(room.buildPlayersMessage());
+                if (hostChanged) {
+                    room.broadcast("CHAT_NOTIFY|" + newHost.getNickname() + "님이 새로운 방장이 되었습니다.");
+                }
+                room.broadcast(room.buildScoresMessage());
                 room.broadcast("CHAT_NOTIFY|" + player.getNickname() + "님이 퇴장했습니다.");
+                room.onPlayerLeftPostNotify();
             }
         }
 
