@@ -118,6 +118,7 @@ public class ClientHandler implements Runnable {
 
                 sendMessage("ROOM_CREATED|" + created.getRoomId());
                 created.broadcast(created.buildPlayersMessage());
+                created.broadcast(created.buildScoresMessage());
 
                 sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
                 sessionManager.broadcastLobbyUsers();
@@ -177,6 +178,24 @@ public class ClientHandler implements Runnable {
                 sessionManager.broadcastLobbyUsers();
             }
 
+            case "START_GAME" -> {
+                if (this.currentRoomId == -1) {
+                    sendMessage("ERROR|NOT_IN_ROOM");
+                    return;
+                }
+                Room room = roomManager.getRoom(this.currentRoomId);
+                if (room == null) {
+                    sendMessage("ERROR|NOT_IN_ROOM");
+                    return;
+                }
+                String error = room.startGame(this);
+                if (error != null) {
+                    sendMessage(error);
+                } else if (serverGui != null) {
+                    serverGui.appendLog("[" + room.getRoomName() + "] 게임 시작 (" + nickname + ")");
+                }
+            }
+
             case "CHAT" -> {
                 if (this.currentRoomId == -1) {
                     sendMessage("ERROR|NOT_IN_ROOM");
@@ -185,7 +204,10 @@ public class ClientHandler implements Runnable {
                 if (tokens.length < 2) return;
                 Room room = roomManager.getRoom(this.currentRoomId);
                 if (room != null) {
-                    room.broadcast("CHAT|" + this.nickname + "|" + tokens[1]);
+                    boolean blockedOrCorrect = room.handleChatGuess(this, tokens[1]);
+                    if (!blockedOrCorrect) {
+                        room.broadcast("CHAT|" + this.nickname + "|" + tokens[1]);
+                    }
                 }
             }
 
