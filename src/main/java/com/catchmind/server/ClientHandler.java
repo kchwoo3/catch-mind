@@ -12,8 +12,8 @@ import java.util.Set;
 public class ClientHandler implements Runnable {
     private static final RoomManager roomManager = new RoomManager();
 
-    private static final int CANVAS_MAX_X = 800;
-    private static final int CANVAS_MAX_Y = 500;
+    private static final int CANVAS_MAX_X = 799;
+    private static final int CANVAS_MAX_Y = 499;
     private static final Set<String> ALLOWED_COLORS = Set.of(
         "#FF0000", "#FFA500", "#FFFF00",
         "#008000", "#0000FF", "#000080",
@@ -115,7 +115,6 @@ public class ClientHandler implements Runnable {
                 String roomName = tokens[1].trim();
                 Room created = roomManager.createRoom(roomName, this);
                 this.currentRoomId = created.getRoomId();
-                
 
                 sendMessage("ROOM_CREATED|" + created.getRoomId());
                 created.broadcast(created.buildPlayersMessage());
@@ -198,7 +197,6 @@ public class ClientHandler implements Runnable {
         }
     }
 
-    // DRAW|<roundId>|<x1>|<y1>|<x2>|<y2>|<색상>|<굵기>
     private void handleDraw(String message) {
         if (this.currentRoomId == -1) {
             sendMessage("ERROR|NOT_IN_ROOM");
@@ -229,22 +227,24 @@ public class ClientHandler implements Runnable {
             return;
         }
 
-        String color = parts[6].trim().toUpperCase();
-
-        // 게임 진행 상태, 라운드 번호, 현재 출제자 일치 여부 검증
-        if (!room.isPlaying() || roundId != room.getCurrentRound() || !room.isCurrentDrawer(this)) {
-            sendMessage("ERROR|INVALID_DRAW_REQUEST");
+        if (!room.isPlaying() || roundId != room.getCurrentRound()) {
+            sendMessage("ERROR|ROUND_NOT_ACTIVE");
             return;
         }
 
-        // 가상 좌표 범위 검증 (0~800, 0~500)
+        if (!room.isCurrentDrawer(this)) {
+            sendMessage("ERROR|NOT_DRAWER");
+            return;
+        }
+
+        String color = parts[6].trim().toUpperCase();
+
         if (x1 < 0 || x1 > CANVAS_MAX_X || x2 < 0 || x2 > CANVAS_MAX_X
                 || y1 < 0 || y1 > CANVAS_MAX_Y || y2 < 0 || y2 > CANVAS_MAX_Y) {
             sendMessage("ERROR|INVALID_DRAW_REQUEST");
             return;
         }
 
-        // 색상 9종 및 펜 굵기(2, 4, 8) / 지우개(#FFFFFF + 16) 조합 검증
         boolean validPen = ALLOWED_COLORS.contains(color) && ALLOWED_PEN_WIDTHS.contains(width);
         boolean validEraser = ERASER_COLOR.equals(color) && width == ERASER_WIDTH;
         if (!validPen && !validEraser) {
@@ -252,10 +252,9 @@ public class ClientHandler implements Runnable {
             return;
         }
 
-        room.broadcast("DRAW_NOTIFY|" + roundId + "|" + x1 + "|" + y1 + "|" + x2 + "|" + y2 + "|" + color + "|" + width);
+        room.broadcast("DRAW_NOTIFY|" + this.nickname + "|" + roundId + "|" + x1 + "|" + y1 + "|" + x2 + "|" + y2 + "|" + color + "|" + width);
     }
 
-    // CLEAR|<roundId>
     private void handleClear(String message) {
         if (this.currentRoomId == -1) {
             sendMessage("ERROR|NOT_IN_ROOM");
@@ -281,12 +280,17 @@ public class ClientHandler implements Runnable {
             return;
         }
 
-        if (!room.isPlaying() || roundId != room.getCurrentRound() || !room.isCurrentDrawer(this)) {
-            sendMessage("ERROR|INVALID_DRAW_REQUEST");
+        if (!room.isPlaying() || roundId != room.getCurrentRound()) {
+            sendMessage("ERROR|ROUND_NOT_ACTIVE");
             return;
         }
 
-        room.broadcast("CLEAR_NOTIFY|" + roundId);
+        if (!room.isCurrentDrawer(this)) {
+            sendMessage("ERROR|NOT_DRAWER");
+            return;
+        }
+
+        room.broadcast("CLEAR_NOTIFY|" + this.nickname + "|" + roundId);
     }
 
     public void sendMessage(String message) {
