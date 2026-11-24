@@ -32,7 +32,8 @@ public class Room {
     private ClientHandler currentDrawer = null;
     private String currentWord = null;
     private int remainingSeconds = 0;
-    private boolean roundActive = false;
+    private volatile boolean roundActive = false;
+    private boolean pendingDrawerLeft = false;
 
     private final List<String> wordPool = new ArrayList<>();
     private final Map<String, Integer> scores = new LinkedHashMap<>();
@@ -57,6 +58,10 @@ public class Room {
 
     public boolean isPlaying() {
         return playing;
+    }
+
+    public boolean isRoundActive() {
+        return roundActive;
     }
 
     public int getCurrentRound() {
@@ -106,12 +111,23 @@ public class Room {
             return;
         }
 
+        if (wasDrawer) {
+            pendingDrawerLeft = true;
+        }
+    }
+
+    // RoomManager에서 PLAYERS 및 퇴장/방장 변경 공지 전송 직후 호출하여 규약 순서를 보장
+    public synchronized void onPlayerLeftPostNotify() {
+        if (!playing) return;
+
         if (players.size() < MIN_PLAYERS_TO_START) {
+            pendingDrawerLeft = false;
             cancelGameDueToLackOfPlayers();
             return;
         }
 
-        if (wasDrawer) {
+        if (pendingDrawerLeft) {
+            pendingDrawerLeft = false;
             handleDrawerLeft();
             return;
         }
@@ -131,7 +147,7 @@ public class Room {
 
     public synchronized String startGame(ClientHandler requester) {
         if (playing) {
-            return "ERROR|GAME_ALREADY_STARTED";
+            return "ERROR|GAME_IN_PROGRESS";
         }
         if (!isHost(requester)) {
             return "ERROR|NOT_HOST";
@@ -144,6 +160,7 @@ public class Room {
         currentRound = 0;
         // 재대결 시에도 클라이언트가 ROUND_START를 무시하지 않도록 currentRoundId는 유지
         drawerIndex = -1;
+        pendingDrawerLeft = false;
         scores.clear();
         for (ClientHandler p : players) {
             if (p.getNickname() != null) {
@@ -177,8 +194,8 @@ public class Room {
     private synchronized void prepareAndBeginRound(int roundId, int roundNumber) {
         cancelTimer();
 
-        if (players.isEmpty()) {
-            playing = false;
+        if (players.size() < MIN_PLAYERS_TO_START) {
+            cancelGameDueToLackOfPlayers();
             return;
         }
 
@@ -202,7 +219,7 @@ public class Room {
 
         String drawerName = currentDrawer.getNickname();
         broadcast("ROUND_START|" + roundId + "|" + roundNumber + "|" + drawerName + "|" + ROUND_DURATION_SECONDS);
-        broadcast("CLEAR_NOTIFY|" + drawerName + "|" + roundId);
+        broadcast("CLEAR_NOTIFY|" + roundId);
 
         for (ClientHandler p : players) {
             if (p.equals(currentDrawer)) {
@@ -332,7 +349,7 @@ public class Room {
             @Override
             public void run() {
                 synchronized (Room.this) {
-                    if (playing && currentRoundId == finishedRoundId) {
+                    if (playing && currentRoundId == finishedRoundId && players.size() >= MIN_PLAYERS_TO_START) {
                         startNextRound();
                     }
                 }
@@ -357,15 +374,15 @@ public class Room {
         int restartRoundId = currentRoundId + 1;
         int sameRoundNumber = currentRound;
 
-        broadcast(buildScoresMessage());
         broadcast("ROUND_CANCEL|" + canceledRoundId + "|DRAWER_LEFT|" + ROUND_CANCEL_DELAY_SECONDS);
+        broadcast(buildScoresMessage());
 
         gameTimer = new Timer(true);
         gameTimer.schedule(new TimerTask() {
             @Override
             public void run() {
                 synchronized (Room.this) {
-                    if (playing && currentRoundId == canceledRoundId) {
+                    if (playing && currentRoundId == canceledRoundId && players.size() >= MIN_PLAYERS_TO_START) {
                         prepareAndBeginRound(restartRoundId, sameRoundNumber);
                     }
                 }
@@ -388,8 +405,8 @@ public class Room {
             }
         }
 
-        broadcast("GAME_END|NOT_ENOUGH_PLAYERS");
         broadcast(buildScoresMessage());
+        broadcast("GAME_END|NOT_ENOUGH_PLAYERS");
     }
 
     private synchronized void completeGame() {

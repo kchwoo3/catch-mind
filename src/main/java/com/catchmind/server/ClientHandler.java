@@ -75,6 +75,11 @@ public class ClientHandler implements Runnable {
                 }
 
                 String requestedNickname = tokens[1].trim();
+                if (requestedNickname.contains("|") || requestedNickname.contains("\n") || requestedNickname.contains("\r")) {
+                    sendMessage("ERROR|INVALID_NICKNAME");
+                    return;
+                }
+
                 int assignedId = sessionManager.registerUser(requestedNickname, this);
 
                 if (assignedId == -1) {
@@ -95,7 +100,6 @@ public class ClientHandler implements Runnable {
 
             case "LIST_ROOMS" -> {
                 sendMessage(roomManager.buildRoomsMessage());
-                sessionManager.broadcastLobbyUsers();
             }
 
             case "CREATE_ROOM" -> {
@@ -113,15 +117,20 @@ public class ClientHandler implements Runnable {
                 }
 
                 String roomName = tokens[1].trim();
+                if (roomName.contains("|") || roomName.contains("\n") || roomName.contains("\r")) {
+                    sendMessage("ERROR|INVALID_ROOM_NAME");
+                    return;
+                }
+
                 Room created = roomManager.createRoom(roomName, this);
                 this.currentRoomId = created.getRoomId();
 
                 sendMessage("ROOM_CREATED|" + created.getRoomId());
+                sessionManager.broadcastLobbyUsers();
+                sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
+
                 created.broadcast(created.buildPlayersMessage());
                 created.broadcast(created.buildScoresMessage());
-
-                sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
-                sessionManager.broadcastLobbyUsers();
 
                 if (serverGui != null) {
                     serverGui.appendLog(nickname + "님이 방 생성: [" + created.getRoomId() + "] " + roomName);
@@ -156,9 +165,9 @@ public class ClientHandler implements Runnable {
                     return;
                 }
 
-                Room room = roomManager.getRoom(targetRoomId);
                 sessionManager.broadcastLobbyUsers();
 
+                Room room = roomManager.getRoom(targetRoomId);
                 if (serverGui != null && room != null) {
                     serverGui.appendLog(nickname + "님이 [" + room.getRoomName() + "] 방에 입장했습니다.");
                 }
@@ -171,11 +180,11 @@ public class ClientHandler implements Runnable {
                 }
                 int prevRoomId = this.currentRoomId;
                 this.currentRoomId = -1;
-                roomManager.leaveRoom(prevRoomId, this);
 
                 sendMessage("LEAVE_OK");
-                sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
                 sessionManager.broadcastLobbyUsers();
+                roomManager.leaveRoom(prevRoomId, this);
+                sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
             }
 
             case "START_GAME" -> {
@@ -249,7 +258,7 @@ public class ClientHandler implements Runnable {
             return;
         }
 
-        if (!room.isPlaying() || roundId != room.getCurrentRound()) {
+        if (!room.isPlaying() || !room.isRoundActive() || roundId != room.getCurrentRound()) {
             sendMessage("ERROR|ROUND_NOT_ACTIVE");
             return;
         }
@@ -274,7 +283,7 @@ public class ClientHandler implements Runnable {
             return;
         }
 
-        room.broadcast("DRAW_NOTIFY|" + this.nickname + "|" + roundId + "|" + x1 + "|" + y1 + "|" + x2 + "|" + y2 + "|" + color + "|" + width);
+        room.broadcast("DRAW_NOTIFY|" + roundId + "|" + x1 + "|" + y1 + "|" + x2 + "|" + y2 + "|" + color + "|" + width);
     }
 
     private void handleClear(String message) {
@@ -302,7 +311,7 @@ public class ClientHandler implements Runnable {
             return;
         }
 
-        if (!room.isPlaying() || roundId != room.getCurrentRound()) {
+        if (!room.isPlaying() || !room.isRoundActive() || roundId != room.getCurrentRound()) {
             sendMessage("ERROR|ROUND_NOT_ACTIVE");
             return;
         }
@@ -312,7 +321,7 @@ public class ClientHandler implements Runnable {
             return;
         }
 
-        room.broadcast("CLEAR_NOTIFY|" + this.nickname + "|" + roundId);
+        room.broadcast("CLEAR_NOTIFY|" + roundId);
     }
 
     public void sendMessage(String message) {
@@ -338,17 +347,19 @@ public class ClientHandler implements Runnable {
     }
 
     private void cleanup() {
-        if (this.currentRoomId != -1) {
-            roomManager.leaveRoom(this.currentRoomId, this);
-            this.currentRoomId = -1;
-            sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
-        }
+        int prevRoomId = this.currentRoomId;
+        this.currentRoomId = -1;
+
         if (this.nickname != null) {
             sessionManager.removeUser(this.nickname);
             sessionManager.broadcastLobbyUsers();
             if (serverGui != null) {
                 serverGui.appendLog(this.nickname + "님이 퇴장했습니다.");
             }
+        }
+        if (prevRoomId != -1) {
+            roomManager.leaveRoom(prevRoomId, this);
+            sessionManager.broadcastRoomsToLobby(roomManager.buildRoomsMessage());
         }
         try {
             if (in != null) in.close();
