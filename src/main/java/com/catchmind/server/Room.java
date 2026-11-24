@@ -26,6 +26,7 @@ public class Room {
 
     private volatile boolean playing = false;
     private int currentRound = 0;
+    private int currentRoundId = 0;
     private int drawerIndex = -1;
     private ClientHandler currentDrawer = null;
     private String currentWord = null;
@@ -57,7 +58,7 @@ public class Room {
     }
 
     public int getCurrentRound() {
-        return currentRound;
+        return currentRoundId;
     }
 
     public boolean isCurrentDrawer(ClientHandler client) {
@@ -139,6 +140,7 @@ public class Room {
 
         playing = true;
         currentRound = 0;
+        currentRoundId = 0;
         drawerIndex = -1;
         scores.clear();
         for (ClientHandler p : players) {
@@ -166,10 +168,11 @@ public class Room {
             return;
         }
 
-        prepareAndBeginRound(currentRound);
+        int nextRoundId = currentRoundId + 1;
+        prepareAndBeginRound(nextRoundId, currentRound);
     }
 
-    private synchronized void prepareAndBeginRound(int roundNumber) {
+    private synchronized void prepareAndBeginRound(int roundId, int roundNumber) {
         cancelTimer();
 
         if (players.isEmpty()) {
@@ -177,6 +180,7 @@ public class Room {
             return;
         }
 
+        currentRoundId = roundId;
         drawerIndex = (drawerIndex + 1) % players.size();
         currentDrawer = players.get(drawerIndex);
         currentWord = drawNextWord();
@@ -186,19 +190,19 @@ public class Room {
         correctNicknames.clear();
 
         String drawerName = currentDrawer.getNickname();
-        broadcast("ROUND_START|" + roundNumber + "|" + TOTAL_ROUNDS + "|" + drawerName);
-        broadcast("CLEAR_NOTIFY|" + drawerName + "|" + roundNumber);
+        broadcast("ROUND_START|" + roundId + "|" + roundNumber + "|" + drawerName + "|" + ROUND_DURATION_SECONDS);
+        broadcast("CLEAR_NOTIFY|" + drawerName + "|" + roundId);
 
         for (ClientHandler p : players) {
             if (p.equals(currentDrawer)) {
-                p.sendMessage("WORD|" + roundNumber + "|" + currentWord);
+                p.sendMessage("WORD|" + roundId + "|" + currentWord);
             } else {
-                p.sendMessage("WORD_LENGTH|" + roundNumber + "|" + currentWord.length());
+                p.sendMessage("WORD_LENGTH|" + roundId + "|" + currentWord.length());
             }
         }
 
-        broadcast("ROUND_TIME|" + roundNumber + "|" + remainingSeconds);
-        startRoundTimer(roundNumber);
+        broadcast("ROUND_TIME|" + roundId + "|" + remainingSeconds);
+        startRoundTimer(roundId);
     }
 
     private String drawNextWord() {
@@ -214,26 +218,26 @@ public class Room {
         return extra.isEmpty() ? "무지개" : extra.get(0);
     }
 
-    private void startRoundTimer(int roundNumber) {
+    private void startRoundTimer(int roundId) {
         gameTimer = new Timer(true);
         gameTimer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
-                onTimerTick(roundNumber);
+                onTimerTick(roundId);
             }
         }, 1000L, 1000L);
     }
 
-    private synchronized void onTimerTick(int roundNumber) {
-        if (!playing || !roundActive || currentRound != roundNumber) {
+    private synchronized void onTimerTick(int roundId) {
+        if (!playing || !roundActive || currentRoundId != roundId) {
             return;
         }
 
         remainingSeconds--;
         if (remainingSeconds > 0) {
-            broadcast("ROUND_TIME|" + roundNumber + "|" + remainingSeconds);
+            broadcast("ROUND_TIME|" + roundId + "|" + remainingSeconds);
         } else {
-            broadcast("ROUND_TIME|" + roundNumber + "|0");
+            broadcast("ROUND_TIME|" + roundId + "|0");
             finishRound("TIMEOUT");
         }
     }
@@ -271,7 +275,7 @@ public class Room {
             scores.merge(currentDrawer.getNickname(), drawerBonus, Integer::sum);
         }
 
-        broadcast("CORRECT_NOTIFY|" + currentRound + "|" + nick + "|" + rank + "|" + guesserPoints);
+        broadcast("CORRECT_NOTIFY|" + currentRoundId + "|" + nick + "|" + rank + "|" + guesserPoints);
         broadcast(buildScoresMessage());
 
         if (areAllRemainingGuessersCorrect()) {
@@ -299,24 +303,25 @@ public class Room {
         roundActive = false;
         cancelTimer();
 
-        int finishedRound = currentRound;
-        broadcast("ROUND_END|" + finishedRound + "|" + reason + "|" + currentWord);
+        int finishedRoundId = currentRoundId;
+        int finishedRoundNum = currentRound;
+        broadcast("ROUND_END|" + finishedRoundId + "|" + reason + "|" + currentWord);
 
-        if (finishedRound >= TOTAL_ROUNDS) {
+        if (finishedRoundNum >= TOTAL_ROUNDS) {
             completeGame();
         } else {
-            scheduleNextRound(finishedRound);
+            scheduleNextRound(finishedRoundId);
         }
     }
 
-    private void scheduleNextRound(int finishedRound) {
+    private void scheduleNextRound(int finishedRoundId) {
         cancelTimer();
         gameTimer = new Timer(true);
         gameTimer.schedule(new TimerTask() {
             @Override
             public void run() {
                 synchronized (Room.this) {
-                    if (playing && currentRound == finishedRound) {
+                    if (playing && currentRoundId == finishedRoundId) {
                         startNextRound();
                     }
                 }
@@ -328,10 +333,11 @@ public class Room {
         roundActive = false;
         cancelTimer();
 
-        int canceledRound = currentRound;
-        broadcast("ROUND_CANCELED|" + canceledRound + "|DRAWER_LEFT");
+        int canceledRoundId = currentRoundId;
+        int nextRoundId = currentRoundId + 1;
+        broadcast("ROUND_CANCEL|" + canceledRoundId + "|DRAWER_LEFT|" + nextRoundId);
 
-        prepareAndBeginRound(canceledRound);
+        prepareAndBeginRound(nextRoundId, currentRound);
     }
 
     private synchronized void cancelGameDueToLackOfPlayers() {
