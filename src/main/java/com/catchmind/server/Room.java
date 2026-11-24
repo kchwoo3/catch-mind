@@ -17,6 +17,7 @@ public class Room {
     public static final int TOTAL_ROUNDS = 12;
     public static final int ROUND_DURATION_SECONDS = 140;
     public static final int ROUND_TRANSITION_DELAY_MS = 3000;
+    public static final int ROUND_CANCEL_DELAY_SECONDS = 3;
 
     private record PlayerScore(String nickname, int score) {}
 
@@ -35,6 +36,7 @@ public class Room {
 
     private final List<String> wordPool = new ArrayList<>();
     private final Map<String, Integer> scores = new LinkedHashMap<>();
+    private final Map<String, Integer> roundStartScores = new LinkedHashMap<>();
     private final List<String> correctOrder = new ArrayList<>();
     private final Set<String> correctNicknames = new HashSet<>();
 
@@ -140,7 +142,7 @@ public class Room {
 
         playing = true;
         currentRound = 0;
-        currentRoundId = 0;
+        // 재대결 시에도 클라이언트가 ROUND_START를 무시하지 않도록 currentRoundId는 유지
         drawerIndex = -1;
         scores.clear();
         for (ClientHandler p : players) {
@@ -178,6 +180,15 @@ public class Room {
         if (players.isEmpty()) {
             playing = false;
             return;
+        }
+
+        // 라운드 시작 전 점수 백업 (출제자 퇴장 시 복원용)
+        roundStartScores.clear();
+        for (ClientHandler p : players) {
+            String nick = p.getNickname();
+            if (nick != null) {
+                roundStartScores.put(nick, scores.getOrDefault(nick, 0));
+            }
         }
 
         currentRoundId = roundId;
@@ -264,11 +275,11 @@ public class Room {
 
         int guesserPoints = switch (rank) {
             case 1 -> 100;
-            case 2 -> 70;
-            case 3 -> 50;
-            default -> 30;
+            case 2 -> 80;
+            case 3 -> 60;
+            default -> 40;
         };
-        int drawerBonus = (rank == 1) ? 30 : 10;
+        int drawerBonus = 20;
 
         scores.merge(nick, guesserPoints, Integer::sum);
         if (currentDrawer != null && currentDrawer.getNickname() != null) {
@@ -333,11 +344,33 @@ public class Room {
         roundActive = false;
         cancelTimer();
 
-        int canceledRoundId = currentRoundId;
-        int nextRoundId = currentRoundId + 1;
-        broadcast("ROUND_CANCEL|" + canceledRoundId + "|DRAWER_LEFT|" + nextRoundId);
+        // 해당 라운드에서 오른 점수 복원
+        scores.clear();
+        for (ClientHandler p : players) {
+            String nick = p.getNickname();
+            if (nick != null) {
+                scores.put(nick, roundStartScores.getOrDefault(nick, 0));
+            }
+        }
 
-        prepareAndBeginRound(nextRoundId, currentRound);
+        int canceledRoundId = currentRoundId;
+        int restartRoundId = currentRoundId + 1;
+        int sameRoundNumber = currentRound;
+
+        broadcast(buildScoresMessage());
+        broadcast("ROUND_CANCEL|" + canceledRoundId + "|DRAWER_LEFT|" + ROUND_CANCEL_DELAY_SECONDS);
+
+        gameTimer = new Timer(true);
+        gameTimer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                synchronized (Room.this) {
+                    if (playing && currentRoundId == canceledRoundId) {
+                        prepareAndBeginRound(restartRoundId, sameRoundNumber);
+                    }
+                }
+            }
+        }, ROUND_CANCEL_DELAY_SECONDS * 1000L);
     }
 
     private synchronized void cancelGameDueToLackOfPlayers() {
@@ -346,6 +379,14 @@ public class Room {
         currentDrawer = null;
         currentWord = null;
         cancelTimer();
+
+        scores.clear();
+        for (ClientHandler p : players) {
+            String nick = p.getNickname();
+            if (nick != null) {
+                scores.put(nick, 0);
+            }
+        }
 
         broadcast("GAME_END|NOT_ENOUGH_PLAYERS");
         broadcast(buildScoresMessage());
