@@ -11,6 +11,8 @@ public class Room {
     private final String roomName;
     private final List<ClientHandler> players = new CopyOnWriteArrayList<>();
     private volatile boolean playing = false;
+    private volatile int currentRound = 0;
+    private volatile ClientHandler currentDrawer = null;
 
     public Room(int roomId, String roomName) {
         this.roomId = roomId;
@@ -31,6 +33,26 @@ public class Room {
 
     public void setPlaying(boolean playing) {
         this.playing = playing;
+    }
+
+    public int getCurrentRound() {
+        return currentRound;
+    }
+
+    public void setCurrentRound(int currentRound) {
+        this.currentRound = currentRound;
+    }
+
+    public ClientHandler getCurrentDrawer() {
+        return currentDrawer;
+    }
+
+    public void setCurrentDrawer(ClientHandler currentDrawer) {
+        this.currentDrawer = currentDrawer;
+    }
+
+    public boolean isCurrentDrawer(ClientHandler client) {
+        return client != null && client.equals(currentDrawer);
     }
 
     public boolean isFull() {
@@ -63,7 +85,7 @@ public class Room {
         return new ArrayList<>(players);
     }
 
-    // 방 안의 모든 유저에게 메시지 전송 (예: PLAYERS|닉네임1|닉네임2, CHAT|...)
+    // 방 안의 모든 유저에게 메시지 전송
     public void broadcast(String message) {
         for (ClientHandler player : players) {
             player.sendMessage(message);
