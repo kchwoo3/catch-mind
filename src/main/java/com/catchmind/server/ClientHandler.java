@@ -31,7 +31,7 @@ public class ClientHandler implements Runnable {
 
     private int userId = -1;
     private String nickname = null;
-    private int currentRoomId = -1; // -1이면 대기실 상태
+    private int currentRoomId = -1;
 
     public ClientHandler(Socket socket, SessionManager sessionManager, ServerMain serverGui) {
         this.socket = socket;
@@ -157,13 +157,6 @@ public class ClientHandler implements Runnable {
                 }
 
                 Room room = roomManager.getRoom(targetRoomId);
-                this.currentRoomId = targetRoomId;
-
-                sendMessage("JOIN_OK|" + targetRoomId);
-                if (room != null) {
-                    room.broadcast(room.buildPlayersMessage());
-                    room.broadcast("CHAT_NOTIFY|" + nickname + "님이 입장했습니다.");
-                }
                 sessionManager.broadcastLobbyUsers();
 
                 if (serverGui != null && room != null) {
@@ -312,6 +305,10 @@ public class ClientHandler implements Runnable {
 
     public int getCurrentRoomId() {
         return currentRoomId;
+    }
+
+    public void setCurrentRoomId(int currentRoomId) {
+        this.currentRoomId = currentRoomId;
     }
 
     private void cleanup() {
