@@ -2,52 +2,42 @@ package com.catchmind.server;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class Room {
     public static final int MAX_PLAYERS = 4;
     public static final int MIN_PLAYERS_TO_START = 3;
     public static final int TOTAL_ROUNDS = 12;
     public static final int ROUND_DURATION_SECONDS = 140;
+    public static final int ROUND_TRANSITION_DELAY_MS = 3000;
 
-    private static final AtomicInteger roundIdGenerator = new AtomicInteger(1);
+    private record PlayerScore(String nickname, int score) {}
 
     private final int roomId;
     private final String roomName;
     private final List<ClientHandler> players = new CopyOnWriteArrayList<>();
 
     private volatile boolean playing = false;
-    private volatile int currentRound = 0;       // 현재 유효 roundId (0이면 라운드 미진행)
-    private volatile int currentRoundNo = 0;     // 1 ~ 12 라운드 번호
-    private volatile ClientHandler currentDrawer = null;
-    private volatile String currentWord = null;
-    private volatile int remainingSeconds = 0;
-    private volatile boolean roundActive = false;
+    private int currentRound = 0;
+    private int drawerIndex = -1;
+    private ClientHandler currentDrawer = null;
+    private String currentWord = null;
+    private int remainingSeconds = 0;
+    private boolean roundActive = false;
 
-    private int drawerRotationIndex = 0;
-    private List<String> wordQueue = new ArrayList<>();
-    private final Map<String, Integer> scores = new HashMap<>();
-    private final Map<String, Integer> roundStartScores = new HashMap<>();
-    private final List<String> roundCorrectOrder = new ArrayList<>();
-    private final Set<String> roundCorrectSet = new HashSet<>();
+    private final List<String> wordPool = new ArrayList<>();
+    private final Map<String, Integer> scores = new LinkedHashMap<>();
+    private final List<String> correctOrder = new ArrayList<>();
+    private final Set<String> correctNicknames = new HashSet<>();
 
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-        Thread t = new Thread(r, "RoomScheduler-" + System.nanoTime());
-        t.setDaemon(true);
-        return t;
-    });
-    private ScheduledFuture<?> roundTask;
-    private ScheduledFuture<?> transitionTask;
+    private Timer gameTimer;
 
     public Room(int roomId, String roomName) {
         this.roomId = roomId;
@@ -66,24 +56,8 @@ public class Room {
         return playing;
     }
 
-    public void setPlaying(boolean playing) {
-        this.playing = playing;
-    }
-
     public int getCurrentRound() {
         return currentRound;
-    }
-
-    public void setCurrentRound(int currentRound) {
-        this.currentRound = currentRound;
-    }
-
-    public ClientHandler getCurrentDrawer() {
-        return currentDrawer;
-    }
-
-    public void setCurrentDrawer(ClientHandler currentDrawer) {
-        this.currentDrawer = currentDrawer;
     }
 
     public boolean isCurrentDrawer(ClientHandler client) {
@@ -102,7 +76,7 @@ public class Room {
         return client != null && client.equals(getHost());
     }
 
-    public void addPlayer(ClientHandler player) {
+    public synchronized void addPlayer(ClientHandler player) {
         if (!players.contains(player)) {
             players.add(player);
             if (player.getNickname() != null) {
@@ -111,8 +85,37 @@ public class Room {
         }
     }
 
-    public boolean removePlayer(ClientHandler player) {
-        return players.remove(player);
+    public synchronized void removePlayer(ClientHandler player) {
+        int removedIdx = players.indexOf(player);
+        if (removedIdx == -1) return;
+
+        boolean wasDrawer = playing && roundActive && player.equals(currentDrawer);
+        players.remove(removedIdx);
+
+        if (removedIdx <= drawerIndex) {
+            drawerIndex--;
+        }
+
+        if (!playing) {
+            if (player.getNickname() != null) {
+                scores.remove(player.getNickname());
+            }
+            return;
+        }
+
+        if (players.size() < MIN_PLAYERS_TO_START) {
+            cancelGameDueToLackOfPlayers();
+            return;
+        }
+
+        if (wasDrawer) {
+            handleDrawerLeft();
+            return;
+        }
+
+        if (roundActive && areAllRemainingGuessersCorrect()) {
+            finishRound("ALL_CORRECT");
+        }
     }
 
     public boolean isEmpty() {
@@ -124,22 +127,19 @@ public class Room {
     }
 
     public synchronized String startGame(ClientHandler requester) {
+        if (playing) {
+            return "ERROR|GAME_ALREADY_STARTED";
+        }
         if (!isHost(requester)) {
             return "ERROR|NOT_HOST";
-        }
-        if (playing) {
-            return "ERROR|GAME_IN_PROGRESS";
         }
         if (players.size() < MIN_PLAYERS_TO_START) {
             return "ERROR|NOT_ENOUGH_PLAYERS";
         }
 
-        cancelScheduledTasks();
         playing = true;
-        currentRoundNo = 0;
-        drawerRotationIndex = 0;
-        wordQueue = WordBank.pickWords(TOTAL_ROUNDS);
-
+        currentRound = 0;
+        drawerIndex = -1;
         scores.clear();
         for (ClientHandler p : players) {
             if (p.getNickname() != null) {
@@ -147,258 +147,243 @@ public class Room {
             }
         }
 
+        wordPool.clear();
+        wordPool.addAll(WordBank.pickWords(TOTAL_ROUNDS + 1));
+
         broadcast("GAME_STARTED|" + TOTAL_ROUNDS);
         broadcast(buildScoresMessage());
+
         startNextRound();
         return null;
     }
 
     private synchronized void startNextRound() {
         if (!playing) return;
-        if (players.size() < MIN_PLAYERS_TO_START) {
-            endGameNotEnoughPlayers();
-            return;
-        }
-        if (currentRoundNo >= TOTAL_ROUNDS) {
-            finishGameNormally();
+
+        currentRound++;
+        if (currentRound > TOTAL_ROUNDS) {
+            completeGame();
             return;
         }
 
-        currentRoundNo++;
-        ClientHandler drawer = players.get(drawerRotationIndex % players.size());
-        drawerRotationIndex++;
-        beginRound(currentRoundNo, drawer);
+        prepareAndBeginRound(currentRound);
     }
 
-    private synchronized void beginRound(int roundNo, ClientHandler drawer) {
-        cancelScheduledTasks();
+    private synchronized void prepareAndBeginRound(int roundNumber) {
+        cancelTimer();
 
-        int roundId = roundIdGenerator.getAndIncrement();
-        this.currentRound = roundId;
-        this.currentDrawer = drawer;
-        this.currentWord = wordQueue.isEmpty() ? "사과" : wordQueue.remove(0);
-        this.remainingSeconds = ROUND_DURATION_SECONDS;
-        this.roundActive = true;
-
-        roundCorrectOrder.clear();
-        roundCorrectSet.clear();
-        roundStartScores.clear();
-        for (ClientHandler p : players) {
-            if (p.getNickname() != null) {
-                roundStartScores.put(p.getNickname(), scores.getOrDefault(p.getNickname(), 0));
-            }
+        if (players.isEmpty()) {
+            playing = false;
+            return;
         }
 
-        String drawerName = drawer.getNickname();
-        broadcast("ROUND_START|" + roundId + "|" + roundNo + "|" + drawerName + "|" + ROUND_DURATION_SECONDS);
+        drawerIndex = (drawerIndex + 1) % players.size();
+        currentDrawer = players.get(drawerIndex);
+        currentWord = drawNextWord();
+        remainingSeconds = ROUND_DURATION_SECONDS;
+        roundActive = true;
+        correctOrder.clear();
+        correctNicknames.clear();
+
+        String drawerName = currentDrawer.getNickname();
+        broadcast("ROUND_START|" + roundNumber + "|" + TOTAL_ROUNDS + "|" + drawerName);
+        broadcast("CLEAR_NOTIFY|" + drawerName + "|" + roundNumber);
 
         for (ClientHandler p : players) {
-            if (p.equals(drawer)) {
-                p.sendMessage("WORD|" + roundId + "|" + currentWord);
+            if (p.equals(currentDrawer)) {
+                p.sendMessage("WORD|" + roundNumber + "|" + currentWord);
             } else {
-                p.sendMessage("WORD_LENGTH|" + roundId + "|" + currentWord.length());
+                p.sendMessage("WORD_LENGTH|" + roundNumber + "|" + currentWord.length());
             }
         }
 
-        roundTask = scheduler.scheduleAtFixedRate(() -> {
-            synchronized (Room.this) {
-                if (!playing || !roundActive || currentRound != roundId) {
-                    return;
-                }
-                remainingSeconds--;
-                if (remainingSeconds > 0) {
-                    broadcast("ROUND_TIME|" + roundId + "|" + remainingSeconds);
-                } else {
-                    broadcast("ROUND_TIME|" + roundId + "|0");
-                    completeRound("TIME_UP");
-                }
-            }
-        }, 1, 1, TimeUnit.SECONDS);
+        broadcast("ROUND_TIME|" + roundNumber + "|" + remainingSeconds);
+        startRoundTimer(roundNumber);
     }
 
-    // 채팅 입력 시 정답 판정 (정답 처리되었으면 true, 일반 채팅으로 보낼 경우 false)
+    private String drawNextWord() {
+        if (!wordPool.isEmpty()) {
+            return wordPool.remove(0);
+        }
+        List<String> extra = WordBank.pickWords(5);
+        for (String w : extra) {
+            if (!w.equals(currentWord)) {
+                return w;
+            }
+        }
+        return extra.isEmpty() ? "무지개" : extra.get(0);
+    }
+
+    private void startRoundTimer(int roundNumber) {
+        gameTimer = new Timer(true);
+        gameTimer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                onTimerTick(roundNumber);
+            }
+        }, 1000L, 1000L);
+    }
+
+    private synchronized void onTimerTick(int roundNumber) {
+        if (!playing || !roundActive || currentRound != roundNumber) {
+            return;
+        }
+
+        remainingSeconds--;
+        if (remainingSeconds > 0) {
+            broadcast("ROUND_TIME|" + roundNumber + "|" + remainingSeconds);
+        } else {
+            broadcast("ROUND_TIME|" + roundNumber + "|0");
+            finishRound("TIMEOUT");
+        }
+    }
+
     public synchronized boolean handleChatGuess(ClientHandler sender, String rawMessage) {
-        if (!playing || !roundActive || currentWord == null) {
+        if (!playing || !roundActive || currentWord == null || sender == null || sender.getNickname() == null) {
             return false;
         }
-        if (isCurrentDrawer(sender)) {
+
+        String trimmedGuess = rawMessage.trim();
+        if (!trimmedGuess.equals(currentWord)) {
             return false;
         }
+
         String nick = sender.getNickname();
-        if (nick == null || roundCorrectSet.contains(nick)) {
-            return false;
+
+        if (sender.equals(currentDrawer) || correctNicknames.contains(nick)) {
+            return true;
         }
 
-        String normalizedGuess = rawMessage.replaceAll("\\s+", "");
-        String normalizedAnswer = currentWord.replaceAll("\\s+", "");
-        if (!normalizedGuess.equalsIgnoreCase(normalizedAnswer)) {
-            return false;
-        }
+        correctNicknames.add(nick);
+        correctOrder.add(nick);
+        int rank = correctOrder.size();
 
-        roundCorrectOrder.add(nick);
-        roundCorrectSet.add(nick);
-        int rank = roundCorrectOrder.size();
-
-        int earned = switch (rank) {
+        int guesserPoints = switch (rank) {
             case 1 -> 100;
-            case 2 -> 80;
-            case 3 -> 60;
-            default -> 40;
+            case 2 -> 70;
+            case 3 -> 50;
+            default -> 30;
         };
+        int drawerBonus = (rank == 1) ? 30 : 10;
 
-        scores.put(nick, scores.getOrDefault(nick, 0) + earned);
-
-        int drawerBonus = 0;
-        String drawerNick = (currentDrawer != null) ? currentDrawer.getNickname() : null;
-        if (drawerNick != null && scores.containsKey(drawerNick)) {
-            drawerBonus = 20;
-            scores.put(drawerNick, scores.getOrDefault(drawerNick, 0) + drawerBonus);
+        scores.merge(nick, guesserPoints, Integer::sum);
+        if (currentDrawer != null && currentDrawer.getNickname() != null) {
+            scores.merge(currentDrawer.getNickname(), drawerBonus, Integer::sum);
         }
 
-        broadcast("CORRECT_NOTIFY|" + currentRound + "|" + nick + "|" + rank + "|" + earned + "|" + drawerBonus);
+        broadcast("CORRECT_NOTIFY|" + currentRound + "|" + nick + "|" + rank + "|" + guesserPoints);
         broadcast(buildScoresMessage());
 
-        long guessersCount = players.stream().filter(p -> !p.equals(currentDrawer)).count();
-        if (roundCorrectSet.size() >= guessersCount) {
-            completeRound("ALL_CORRECT");
+        if (areAllRemainingGuessersCorrect()) {
+            finishRound("ALL_CORRECT");
         }
+
         return true;
     }
 
-    private synchronized void completeRound(String reason) {
+    private boolean areAllRemainingGuessersCorrect() {
+        int remainingGuessers = 0;
+        for (ClientHandler p : players) {
+            if (!p.equals(currentDrawer) && p.getNickname() != null) {
+                remainingGuessers++;
+                if (!correctNicknames.contains(p.getNickname())) {
+                    return false;
+                }
+            }
+        }
+        return remainingGuessers > 0;
+    }
+
+    private synchronized void finishRound(String reason) {
         if (!roundActive) return;
         roundActive = false;
-        if (roundTask != null) {
-            roundTask.cancel(false);
-            roundTask = null;
-        }
+        cancelTimer();
 
-        int finishedRoundId = currentRound;
-        String answer = currentWord != null ? currentWord : "";
-        currentRound = 0;
-        currentDrawer = null;
-        currentWord = null;
+        int finishedRound = currentRound;
+        broadcast("ROUND_END|" + finishedRound + "|" + reason + "|" + currentWord);
 
-        broadcast("ROUND_END|" + finishedRoundId + "|" + reason + "|" + answer);
-
-        if (currentRoundNo >= TOTAL_ROUNDS) {
-            transitionTask = scheduler.schedule(this::finishGameNormally, 2, TimeUnit.SECONDS);
+        if (finishedRound >= TOTAL_ROUNDS) {
+            completeGame();
         } else {
-            transitionTask = scheduler.schedule(this::startNextRound, 2, TimeUnit.SECONDS);
+            scheduleNextRound(finishedRound);
         }
     }
 
-    public synchronized void onPlayerRemoved(ClientHandler leftPlayer, boolean wasDrawer) {
-        String leftNick = leftPlayer.getNickname();
-        if (leftNick != null) {
-            scores.remove(leftNick);
-            roundStartScores.remove(leftNick);
-        }
-
-        if (!playing) {
-            return;
-        }
-
-        // 최우선 규칙: 진행 중 인원이 2명 이하가 되면 즉시 점수 0 초기화 후 게임 종료
-        if (players.size() < MIN_PLAYERS_TO_START) {
-            endGameNotEnoughPlayers();
-            return;
-        }
-
-        // 3명 이상 남은 상태에서 출제자가 퇴장한 경우 3초 대기 후 동일 roundNo 재개시
-        if (wasDrawer && roundActive) {
-            roundActive = false;
-            if (roundTask != null) {
-                roundTask.cancel(false);
-                roundTask = null;
-            }
-
-            int cancelledRoundId = currentRound;
-            currentRound = 0;
-            currentDrawer = null;
-            currentWord = null;
-
-            // 라운드 시작 시점 점수로 복원
-            for (ClientHandler p : players) {
-                String nick = p.getNickname();
-                if (nick != null) {
-                    scores.put(nick, roundStartScores.getOrDefault(nick, 0));
-                }
-            }
-
-            broadcast("ROUND_CANCEL|" + cancelledRoundId + "|DRAWER_LEFT|3");
-            broadcast(buildScoresMessage());
-
-            final int retryRoundNo = currentRoundNo;
-            transitionTask = scheduler.schedule(() -> {
+    private void scheduleNextRound(int finishedRound) {
+        cancelTimer();
+        gameTimer = new Timer(true);
+        gameTimer.schedule(new TimerTask() {
+            @Override
+            public void run() {
                 synchronized (Room.this) {
-                    if (!playing) return;
-                    if (players.size() < MIN_PLAYERS_TO_START) {
-                        endGameNotEnoughPlayers();
-                        return;
+                    if (playing && currentRound == finishedRound) {
+                        startNextRound();
                     }
-                    ClientHandler nextDrawer = players.get(drawerRotationIndex % players.size());
-                    drawerRotationIndex++;
-                    beginRound(retryRoundNo, nextDrawer);
                 }
-            }, 3, TimeUnit.SECONDS);
-        } else if (roundActive && currentDrawer != null) {
-            // 일반 참가자 퇴장 시 남은 추리자가 모두 정답을 맞힌 상태라면 즉시 라운드 종료
-            long remainingGuessers = players.stream().filter(p -> !p.equals(currentDrawer)).count();
-            long correctRemaining = players.stream()
-                    .filter(p -> !p.equals(currentDrawer) && roundCorrectSet.contains(p.getNickname()))
-                    .count();
-            if (remainingGuessers > 0 && correctRemaining >= remainingGuessers) {
-                completeRound("ALL_CORRECT");
             }
-        }
+        }, ROUND_TRANSITION_DELAY_MS);
     }
 
-    private synchronized void endGameNotEnoughPlayers() {
-        cancelScheduledTasks();
-        resetGameState();
-        for (ClientHandler p : players) {
-            if (p.getNickname() != null) {
-                scores.put(p.getNickname(), 0);
-            }
-        }
-        broadcast(buildScoresMessage());
-        broadcast("GAME_END|NOT_ENOUGH_PLAYERS");
-    }
-
-    private synchronized void finishGameNormally() {
-        cancelScheduledTasks();
-        String finalResult = buildGameEndMessage();
-        resetGameState();
-        broadcast(finalResult);
-    }
-
-    private void resetGameState() {
-        playing = false;
+    private synchronized void handleDrawerLeft() {
         roundActive = false;
-        currentRound = 0;
-        currentRoundNo = 0;
+        cancelTimer();
+
+        int canceledRound = currentRound;
+        broadcast("ROUND_CANCELED|" + canceledRound + "|DRAWER_LEFT");
+
+        prepareAndBeginRound(canceledRound);
+    }
+
+    private synchronized void cancelGameDueToLackOfPlayers() {
+        roundActive = false;
+        playing = false;
         currentDrawer = null;
         currentWord = null;
-        remainingSeconds = 0;
-        roundCorrectOrder.clear();
-        roundCorrectSet.clear();
+        cancelTimer();
+
+        broadcast("GAME_END|NOT_ENOUGH_PLAYERS");
+        broadcast(buildScoresMessage());
     }
 
-    private void cancelScheduledTasks() {
-        if (roundTask != null) {
-            roundTask.cancel(false);
-            roundTask = null;
+    private synchronized void completeGame() {
+        roundActive = false;
+        playing = false;
+        currentDrawer = null;
+        currentWord = null;
+        cancelTimer();
+
+        List<PlayerScore> ranking = new ArrayList<>();
+        for (ClientHandler p : players) {
+            String nick = p.getNickname();
+            if (nick != null) {
+                ranking.add(new PlayerScore(nick, scores.getOrDefault(nick, 0)));
+            }
         }
-        if (transitionTask != null) {
-            transitionTask.cancel(false);
-            transitionTask = null;
+        ranking.sort(Comparator.comparingInt(PlayerScore::score).reversed());
+
+        StringBuilder sb = new StringBuilder("GAME_END|COMPLETED");
+        int rank = 0;
+        int prevScore = Integer.MIN_VALUE;
+        for (int i = 0; i < ranking.size(); i++) {
+            PlayerScore entry = ranking.get(i);
+            if (entry.score() != prevScore) {
+                rank = i + 1;
+                prevScore = entry.score();
+            }
+            sb.append("|").append(entry.nickname())
+              .append("|").append(entry.score())
+              .append("|").append(rank);
         }
+
+        broadcast(sb.toString());
     }
 
-    public void shutdownScheduler() {
-        cancelScheduledTasks();
-        scheduler.shutdownNow();
+    private void cancelTimer() {
+        if (gameTimer != null) {
+            gameTimer.cancel();
+            gameTimer.purge();
+            gameTimer = null;
+        }
     }
 
     public void broadcast(String message) {
@@ -424,33 +409,6 @@ public class Room {
             if (nick != null) {
                 sb.append("|").append(nick).append("|").append(scores.getOrDefault(nick, 0));
             }
-        }
-        return sb.toString();
-    }
-
- // GAME_END|COMPLETED|<순위>|<닉네임>|<점수>|... (동점자 공동 순위 산출)
-    private String buildGameEndMessage() {
-        List<String[]> ranking = new ArrayList<>();
-        for (ClientHandler player : players) {
-            String nick = player.getNickname();
-            if (nick != null) {
-                ranking.add(new String[]{ nick, String.valueOf(scores.getOrDefault(nick, 0)) });
-            }
-        }
-        ranking.sort((a, b) -> Integer.compare(Integer.parseInt(b[1]), Integer.parseInt(a[1])));
-
-        StringBuilder sb = new StringBuilder("GAME_END|COMPLETED");
-        int prevScore = Integer.MIN_VALUE;
-        int currentRank = 0;
-        for (int i = 0; i < ranking.size(); i++) {
-            int score = Integer.parseInt(ranking.get(i)[1]);
-            if (score != prevScore) {
-                currentRank = i + 1;
-                prevScore = score;
-            }
-            sb.append("|").append(currentRank)
-              .append("|").append(ranking.get(i)[0])
-              .append("|").append(score);
         }
         return sb.toString();
     }

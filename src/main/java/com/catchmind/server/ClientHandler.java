@@ -12,8 +12,8 @@ import java.util.Set;
 public class ClientHandler implements Runnable {
     private static final RoomManager roomManager = new RoomManager();
 
-    private static final int CANVAS_MAX_X = 800;
-    private static final int CANVAS_MAX_Y = 500;
+    private static final int CANVAS_MAX_X = 799;
+    private static final int CANVAS_MAX_Y = 499;
     private static final Set<String> ALLOWED_COLORS = Set.of(
         "#FF0000", "#FFA500", "#FFFF00",
         "#008000", "#0000FF", "#000080",
@@ -157,14 +157,6 @@ public class ClientHandler implements Runnable {
                 }
 
                 Room room = roomManager.getRoom(targetRoomId);
-                this.currentRoomId = targetRoomId;
-
-                sendMessage("JOIN_OK|" + targetRoomId);
-                if (room != null) {
-                    room.broadcast(room.buildPlayersMessage());
-                    room.broadcast(room.buildScoresMessage());
-                    room.broadcast("CHAT_NOTIFY|" + nickname + "님이 입장했습니다.");
-                }
                 sessionManager.broadcastLobbyUsers();
 
                 if (serverGui != null && room != null) {
@@ -212,8 +204,8 @@ public class ClientHandler implements Runnable {
                 if (tokens.length < 2) return;
                 Room room = roomManager.getRoom(this.currentRoomId);
                 if (room != null) {
-                    boolean handledAsCorrect = room.handleChatGuess(this, tokens[1]);
-                    if (!handledAsCorrect) {
+                    boolean blockedOrCorrect = room.handleChatGuess(this, tokens[1]);
+                    if (!blockedOrCorrect) {
                         room.broadcast("CHAT|" + this.nickname + "|" + tokens[1]);
                     }
                 }
@@ -257,12 +249,17 @@ public class ClientHandler implements Runnable {
             return;
         }
 
-        String color = parts[6].trim().toUpperCase();
-
-        if (!room.isPlaying() || roundId != room.getCurrentRound() || !room.isCurrentDrawer(this)) {
-            sendMessage("ERROR|INVALID_DRAW_REQUEST");
+        if (!room.isPlaying() || roundId != room.getCurrentRound()) {
+            sendMessage("ERROR|ROUND_NOT_ACTIVE");
             return;
         }
+
+        if (!room.isCurrentDrawer(this)) {
+            sendMessage("ERROR|NOT_DRAWER");
+            return;
+        }
+
+        String color = parts[6].trim().toUpperCase();
 
         if (x1 < 0 || x1 > CANVAS_MAX_X || x2 < 0 || x2 > CANVAS_MAX_X
                 || y1 < 0 || y1 > CANVAS_MAX_Y || y2 < 0 || y2 > CANVAS_MAX_Y) {
@@ -277,7 +274,7 @@ public class ClientHandler implements Runnable {
             return;
         }
 
-        room.broadcast("DRAW_NOTIFY|" + roundId + "|" + x1 + "|" + y1 + "|" + x2 + "|" + y2 + "|" + color + "|" + width);
+        room.broadcast("DRAW_NOTIFY|" + this.nickname + "|" + roundId + "|" + x1 + "|" + y1 + "|" + x2 + "|" + y2 + "|" + color + "|" + width);
     }
 
     private void handleClear(String message) {
@@ -305,12 +302,17 @@ public class ClientHandler implements Runnable {
             return;
         }
 
-        if (!room.isPlaying() || roundId != room.getCurrentRound() || !room.isCurrentDrawer(this)) {
-            sendMessage("ERROR|INVALID_DRAW_REQUEST");
+        if (!room.isPlaying() || roundId != room.getCurrentRound()) {
+            sendMessage("ERROR|ROUND_NOT_ACTIVE");
             return;
         }
 
-        room.broadcast("CLEAR_NOTIFY|" + roundId);
+        if (!room.isCurrentDrawer(this)) {
+            sendMessage("ERROR|NOT_DRAWER");
+            return;
+        }
+
+        room.broadcast("CLEAR_NOTIFY|" + this.nickname + "|" + roundId);
     }
 
     public void sendMessage(String message) {
@@ -329,6 +331,10 @@ public class ClientHandler implements Runnable {
 
     public int getCurrentRoomId() {
         return currentRoomId;
+    }
+
+    public void setCurrentRoomId(int currentRoomId) {
+        this.currentRoomId = currentRoomId;
     }
 
     private void cleanup() {
