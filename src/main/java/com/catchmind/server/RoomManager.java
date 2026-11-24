@@ -39,6 +39,7 @@ public class RoomManager {
             player.setCurrentRoomId(roomId);
             player.sendMessage("JOIN_OK|" + roomId);
             room.broadcast(room.buildPlayersMessage());
+            room.broadcast(room.buildScoresMessage());
             room.broadcast("CHAT_NOTIFY|" + player.getNickname() + "님이 입장했습니다.");
             return JoinResult.SUCCESS;
         }
@@ -54,6 +55,7 @@ public class RoomManager {
             becameEmpty = room.isEmpty();
             if (!becameEmpty) {
                 room.broadcast(room.buildPlayersMessage());
+                room.broadcast(room.buildScoresMessage());
                 room.broadcast("CHAT_NOTIFY|" + player.getNickname() + "님이 퇴장했습니다.");
             }
         }
