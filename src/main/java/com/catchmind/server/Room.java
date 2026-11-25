@@ -116,23 +116,24 @@ public class Room {
         }
     }
 
-    // RoomManager에서 PLAYERS 및 퇴장/방장 변경 공지 전송 직후 호출하여 규약 순서를 보장
+ // RoomManager에서 PLAYERS 및 퇴장/방장 변경 공지 전송 직후 호출하여 규약 순서를 보장
     public synchronized void onPlayerLeftPostNotify() {
-        if (!playing) return;
-
-        if (players.size() < MIN_PLAYERS_TO_START) {
+        if (playing && players.size() < MIN_PLAYERS_TO_START) {
             pendingDrawerLeft = false;
             cancelGameDueToLackOfPlayers();
             return;
         }
 
-        if (pendingDrawerLeft) {
+        if (playing && pendingDrawerLeft) {
             pendingDrawerLeft = false;
             handleDrawerLeft();
             return;
         }
 
-        if (roundActive && areAllRemainingGuessersCorrect()) {
+        // 일반 퇴장 시 현재 점수표 전송 추가
+        broadcast(buildScoresMessage());
+
+        if (playing && roundActive && areAllRemainingGuessersCorrect()) {
             finishRound("ALL_CORRECT");
         }
     }

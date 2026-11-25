@@ -28,6 +28,7 @@ public class RoomManager {
         if (room == null) {
             return JoinResult.ROOM_NOT_FOUND;
         }
+
         synchronized (room) {
             if (room.isPlaying()) {
                 return JoinResult.GAME_IN_PROGRESS;
@@ -35,12 +36,15 @@ public class RoomManager {
             if (room.isFull()) {
                 return JoinResult.ROOM_FULL;
             }
+
             room.addPlayer(player);
             player.setCurrentRoomId(roomId);
             player.sendMessage("JOIN_OK|" + roomId);
+
             room.broadcast(room.buildPlayersMessage());
             room.broadcast(room.buildScoresMessage());
             room.broadcast("CHAT_NOTIFY|" + player.getNickname() + "님이 입장했습니다.");
+
             return JoinResult.SUCCESS;
         }
     }
@@ -63,8 +67,12 @@ public class RoomManager {
                 if (hostChanged) {
                     room.broadcast("CHAT_NOTIFY|" + newHost.getNickname() + "님이 새로운 방장이 되었습니다.");
                 }
-                room.broadcast(room.buildScoresMessage());
+
+                // [수정 완료] 퇴장 직후 중복으로 전송되던 room.broadcast(room.buildScoresMessage()); 삭제됨
+                
                 room.broadcast("CHAT_NOTIFY|" + player.getNickname() + "님이 퇴장했습니다.");
+                
+                // 이후 onPlayerLeftPostNotify()에서 상황에 맞는 점수표가 한 번만 전송됨
                 room.onPlayerLeftPostNotify();
             }
         }
