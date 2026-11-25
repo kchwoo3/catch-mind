@@ -41,6 +41,9 @@ public class GameRoomPanel extends JPanel {
 	}
 	private final JTextArea chatHistory = new JTextArea();
 	private final JButton startGameButton = new JButton("게임 시작");
+	private final JButton leaveRoomButton = new JButton("방 나가기");
+	private Runnable leaveRoomAction;
+	private boolean leaveRoomPending;
 	private final String localNickname;
 	private final JTable playerTable;
 	private final JLabel roundLabel;
@@ -187,7 +190,7 @@ public class GameRoomPanel extends JPanel {
 
 		ActionListener sendChat = event -> {
 		    String body = chatInput.getText().strip();
-		    if (body.isEmpty() || !chatSendButton.isEnabled()) {
+		    if (leaveRoomPending || body.isEmpty() || !chatSendButton.isEnabled()) {
 		        return;
 		    }
 
@@ -223,6 +226,9 @@ public class GameRoomPanel extends JPanel {
 		chatPanel.add(chatInputPanel, BorderLayout.SOUTH);
 
 		sidePanel.add(chatPanel, BorderLayout.CENTER);
+		leaveRoomButton.setEnabled(false);
+		leaveRoomButton.addActionListener(event -> requestLeaveRoom());
+		sidePanel.add(leaveRoomButton, BorderLayout.SOUTH);
 
 		add(sidePanel, BorderLayout.EAST);
 	}
@@ -247,6 +253,48 @@ public class GameRoomPanel extends JPanel {
 
 	    updatePlayerRoles();
 	    updateStartButton();
+	}
+	
+	void setLeaveRoomAction(Runnable action) {
+	    leaveRoomAction = action;
+	    leaveRoomButton.setEnabled(action != null && !leaveRoomPending);
+	}
+
+	private void requestLeaveRoom() {
+	    if (leaveRoomAction == null || leaveRoomPending) {
+	        return;
+	    }
+
+	    if (isGameInProgress()) {
+	        int result = JOptionPane.showConfirmDialog(this,
+	                "게임이 진행 중입니다. 방에서 나갈까요?",
+	                "방 나가기", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+
+	        if (result != JOptionPane.YES_OPTION) {
+	            return;
+	        }
+	    }
+
+	    setLeaveRoomPending(true);
+	    leaveRoomAction.run();
+	}
+
+	boolean isLeaveRoomPending() {
+	    return leaveRoomPending;
+	}
+
+	void showLeaveRoomFailure(String message) {
+	    if (leaveRoomPending) {
+	        setLeaveRoomPending(false);
+	        appendSystemMessage(message);
+	    }
+	}
+
+	private void setLeaveRoomPending(boolean pending) {
+	    leaveRoomPending = pending;
+	    leaveRoomButton.setEnabled(leaveRoomAction != null && !pending);
+	    updateStartButton();
+	    setDrawingAllowed(localNickname.equals(currentDrawerNickname));
 	}
 	
 	void setStartGameAction(Runnable startGameAction) {
@@ -284,6 +332,7 @@ public class GameRoomPanel extends JPanel {
 	private void updateStartButton() {
 	    boolean canStart = waitingForGame
 	            && !startGamePending
+	            && !leaveRoomPending
 	            && startGameAction != null
 	            && playerTable.getRowCount() >= 3
 	            && localNickname.equals(playerTable.getValueAt(0, 0));
@@ -292,6 +341,7 @@ public class GameRoomPanel extends JPanel {
 	}
 	
 	private void setDrawingAllowed(boolean allowed) {
+		allowed = allowed && !leaveRoomPending;
 	    canvasPanel.setDrawingAllowed(allowed);
 
 	    for (Component tool : drawingTools.getComponents()) {
