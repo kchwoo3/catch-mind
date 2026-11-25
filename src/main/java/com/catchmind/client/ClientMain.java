@@ -68,6 +68,8 @@ public class ClientMain {
 		int expectedLength = switch (type) {
 		case "ROUND_START", "CORRECT_NOTIFY" -> 5;
 		case "ROUND_END", "ROUND_CANCEL" -> 4;
+		case "DRAW_NOTIFY" -> 8;
+		case "CLEAR_NOTIFY" -> 2;
 		default -> 3;
 		};
 
@@ -92,6 +94,8 @@ public class ClientMain {
 		case "WORD" -> gameRoom.showWord(parts[2]);
 		case "WORD_LENGTH" -> gameRoom.showWordLength(Integer.parseInt(parts[2]));
 		case "ROUND_TIME" -> gameRoom.updateRemainingTime(Integer.parseInt(parts[2]));
+		case "DRAW_NOTIFY" -> handleDrawingSegment(gameRoom, parts);
+		case "CLEAR_NOTIFY" -> gameRoom.showDrawingCleared();
 		case "CORRECT_NOTIFY" ->
 			gameRoom.showCorrectAnswer(parts[2], Integer.parseInt(parts[3]), Integer.parseInt(parts[4]));
 		case "ROUND_END" -> {
@@ -107,6 +111,25 @@ public class ClientMain {
 		}
 	}
 
+	private static void handleDrawingSegment(GameRoomPanel gameRoom, String[] parts) {
+	    String colorCode = parts[6];
+	    if (colorCode.length() != 7 || colorCode.charAt(0) != '#') {
+	        return;
+	    }
+
+	    Color color = Color.decode(colorCode);
+	    int width = Integer.parseInt(parts[7]);
+	    if (width != 2 && width != 4 && width != 8
+	            && !(width == 16 && Color.WHITE.equals(color))) {
+	        return;
+	    }
+
+	    gameRoom.showDrawingSegment(
+	            Integer.parseInt(parts[2]), Integer.parseInt(parts[3]),
+	            Integer.parseInt(parts[4]), Integer.parseInt(parts[5]),
+	            color, width);
+	}
+	
 	private static void handleScores(GameRoomPanel gameRoom, String[] parts) {
 		if (parts.length % 2 == 0) {
 			return;
@@ -421,8 +444,7 @@ public class ClientMain {
 								}
 								boolean gameRoomMessage = switch (parts[0]) {
 								case "ROUND_START", "WORD", "WORD_LENGTH", "ROUND_TIME", "CORRECT_NOTIFY", "SCORES",
-										"ROUND_END", "ROUND_CANCEL", "GAME_END" ->
-									true;
+						        "ROUND_END", "ROUND_CANCEL", "GAME_END", "DRAW_NOTIFY", "CLEAR_NOTIFY" -> true;
 								default -> false;
 								};
 
@@ -474,7 +496,12 @@ public class ClientMain {
 										};
 
 										gameRoom.setChatSender(body -> sendRoomCommand.apply("CHAT|" + body));
-
+										
+										gameRoom.setDrawingSender(command -> sendRoomCommand.apply(command).exceptionally(error -> {
+										    System.out.println("그림 전송 실패 = " + error.getMessage());
+										    return null;
+										}));
+										
 										gameRoom.setStartGameAction(() -> {
 											gameRoom.setStartGamePending(true);
 

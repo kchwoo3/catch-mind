@@ -7,6 +7,7 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
+import java.awt.Point;
 import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -16,6 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 import javax.swing.BorderFactory;
@@ -284,6 +286,25 @@ public class GameRoomPanel extends JPanel {
 	    for (Component tool : drawingTools.getComponents()) {
 	        tool.setEnabled(allowed);
 	    }
+	}
+	
+	void setDrawingSender(Consumer<String> sendCommand) {
+	    canvasPanel.setDrawingActions(segment -> {
+	        String color = String.format("#%06X", segment.color().getRGB() & 0xFFFFFF);
+	        sendCommand.accept("DRAW|" + currentRoundId
+	                + "|" + segment.from().x + "|" + segment.from().y
+	                + "|" + segment.to().x + "|" + segment.to().y
+	                + "|" + color + "|" + segment.width());
+	    }, () -> sendCommand.accept("CLEAR|" + currentRoundId));
+	}
+
+	void showDrawingSegment(int x1, int y1, int x2, int y2, Color color, int width) {
+	    canvasPanel.addSegment(new DrawingPanel.Segment(
+	            new Point(x1, y1), new Point(x2, y2), color, width));
+	}
+
+	void showDrawingCleared() {
+	    canvasPanel.clearSegments();
 	}
 	
 	void handleRoundStart(int roundId, int roundNumber, String drawerNickname, int roundSeconds) {
