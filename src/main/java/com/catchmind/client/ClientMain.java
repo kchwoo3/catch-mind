@@ -1,41 +1,47 @@
 package com.catchmind.client;
 
-import javax.swing.JFrame;
-import javax.swing.SwingUtilities;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JTextField;
-import java.awt.GridLayout;
 import java.awt.BorderLayout;
-import javax.swing.JButton;
-import javax.swing.JOptionPane;
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.io.BufferedWriter;
-import java.io.OutputStreamWriter;
-import javax.swing.JList;
-import javax.swing.JScrollPane;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
-import java.awt.Dimension;
 import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridBagLayout;
+import java.awt.GridLayout;
 import java.awt.Image;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.URL;
-import javax.swing.BorderFactory;
-import javax.swing.ImageIcon;
-import java.awt.FlowLayout;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.function.Function;
+
+import javax.swing.BorderFactory;
+import javax.swing.ImageIcon;
+import javax.swing.JButton;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextField;
+import javax.swing.SwingUtilities;
 
 public class ClientMain {
 	private record RoomInfo(String id, String name) {
@@ -43,6 +49,98 @@ public class ClientMain {
 		public String toString() {
 			return name;
 		}
+	}
+
+	private static void handleGameRoomMessage(GameRoomPanel gameRoom, String[] parts) {
+		try {
+			switch (parts[0]) {
+			case "SCORES" -> handleScores(gameRoom, parts);
+			case "GAME_END" -> handleGameEnd(gameRoom, parts);
+			default -> handleRoundMessage(gameRoom, parts);
+			}
+		} catch (NumberFormatException ex) {
+			System.out.println("잘못된 게임 메시지 = " + Arrays.toString(parts));
+		}
+	}
+
+	private static void handleRoundMessage(GameRoomPanel gameRoom, String[] parts) {
+		String type = parts[0];
+		int expectedLength = switch (type) {
+		case "ROUND_START", "CORRECT_NOTIFY" -> 5;
+		case "ROUND_END", "ROUND_CANCEL" -> 4;
+		default -> 3;
+		};
+
+		if (parts.length != expectedLength) {
+			return;
+		}
+
+		int roundId = Integer.parseInt(parts[1]);
+
+		if ("ROUND_START".equals(type)) {
+			int roundNumber = Integer.parseInt(parts[2]);
+			int roundSeconds = Integer.parseInt(parts[4]);
+			gameRoom.handleRoundStart(roundId, roundNumber, parts[3], roundSeconds);
+			return;
+		}
+
+		if (!gameRoom.isCurrentRound(roundId)) {
+			return;
+		}
+
+		switch (type) {
+		case "WORD" -> gameRoom.showWord(parts[2]);
+		case "WORD_LENGTH" -> gameRoom.showWordLength(Integer.parseInt(parts[2]));
+		case "ROUND_TIME" -> gameRoom.updateRemainingTime(Integer.parseInt(parts[2]));
+		case "CORRECT_NOTIFY" ->
+			gameRoom.showCorrectAnswer(parts[2], Integer.parseInt(parts[3]), Integer.parseInt(parts[4]));
+		case "ROUND_END" -> {
+			if ("ALL_CORRECT".equals(parts[2]) || "TIMEOUT".equals(parts[2])) {
+				gameRoom.handleRoundEnd(parts[3]);
+			}
+		}
+		case "ROUND_CANCEL" -> {
+			if ("DRAWER_LEFT".equals(parts[2])) {
+				gameRoom.showRoundCancelled(Integer.parseInt(parts[3]));
+			}
+		}
+		}
+	}
+
+	private static void handleScores(GameRoomPanel gameRoom, String[] parts) {
+		if (parts.length % 2 == 0) {
+			return;
+		}
+
+		Map<String, Integer> scores = new HashMap<>();
+		for (int index = 1; index < parts.length; index += 2) {
+			scores.put(parts[index], Integer.parseInt(parts[index + 1]));
+		}
+
+		gameRoom.updateScores(scores);
+	}
+
+	private static void handleGameEnd(GameRoomPanel gameRoom, String[] parts) {
+		if (!gameRoom.isGameInProgress() || parts.length < 2) {
+			return;
+		}
+
+		if (parts.length == 2 && "NOT_ENOUGH_PLAYERS".equals(parts[1])) {
+			gameRoom.showGameAbortedForTooFewPlayers();
+			return;
+		}
+
+		if (!"COMPLETED".equals(parts[1]) || parts.length < 5 || (parts.length - 2) % 3 != 0) {
+			return;
+		}
+
+		List<GameRoomPanel.FinalStanding> standings = new ArrayList<>();
+		for (int index = 2; index < parts.length; index += 3) {
+			standings.add(new GameRoomPanel.FinalStanding(parts[index], Integer.parseInt(parts[index + 1]),
+					Integer.parseInt(parts[index + 2])));
+		}
+
+		gameRoom.handleGameCompleted(standings);
 	}
 
 	public static void main(String[] args) {
@@ -82,7 +180,7 @@ public class ClientMain {
 					JOptionPane.showMessageDialog(frame, "포트는 1~65535 사이여야 합니다.");
 					return;
 				}
-				String nickname = nicknameField.getText();
+				String nickname = nicknameField.getText().trim();
 
 				System.out.println("서버 IP = " + ip);
 				System.out.println("포트 = " + port);
@@ -249,33 +347,104 @@ public class ClientMain {
 							while ((roomResponse = reader.readLine()) != null) {
 								System.out.println("서버 메시지 = " + roomResponse);
 								if (roomResponse.startsWith("CHAT|")) {
-								    String[] chat = roomResponse.split("\\|", 3);
+									String[] chat = roomResponse.split("\\|", 3);
 
-								    if (chat.length == 3) {
-								        SwingUtilities.invokeLater(() -> {
-								            if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
-								                gameRoom.appendChatMessage(chat[1], chat[2]);
-								            }
-								        });
-								    }
+									if (chat.length == 3) {
+										SwingUtilities.invokeLater(() -> {
+											if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
+												gameRoom.appendChatMessage(chat[1], chat[2]);
+											}
+										});
+									}
 
-								    continue;
+									continue;
 								}
 
 								if (roomResponse.startsWith("CHAT_NOTIFY|")) {
-								    String[] notice = roomResponse.split("\\|", 2);
+									String[] notice = roomResponse.split("\\|", 2);
 
-								    if (notice.length == 2) {
-								        SwingUtilities.invokeLater(() -> {
-								            if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
-								                gameRoom.appendSystemMessage(notice[1]);
-								            }
-								        });
-								    }
+									if (notice.length == 2) {
+										SwingUtilities.invokeLater(() -> {
+											if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
+												gameRoom.appendSystemMessage(notice[1]);
+											}
+										});
+									}
 
-								    continue;
+									continue;
 								}
 								String[] parts = roomResponse.split("\\|", -1);
+								if ("GAME_STARTED".equals(parts[0]) && parts.length == 2) {
+									try {
+										int totalRounds = Integer.parseInt(parts[1]);
+
+										if (totalRounds > 0) {
+											SwingUtilities.invokeLater(() -> {
+												if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
+													gameRoom.handleGameStarted(totalRounds);
+												}
+											});
+										}
+									} catch (NumberFormatException ex) {
+										System.out.println("잘못된 게임 시작 응답 = " + roomResponse);
+									}
+
+									continue;
+								}
+
+								if ("ERROR".equals(parts[0]) && parts.length == 2) {
+									String errorCode = parts[1];
+									String message = switch (errorCode) {
+									case "NOT_HOST" -> "방장만 게임을 시작할 수 있습니다.";
+									case "NOT_ENOUGH_PLAYERS" -> "참가자가 3명 이상이어야 합니다.";
+									case "GAME_IN_PROGRESS" -> "이미 게임이 진행 중입니다.";
+									case "NOT_IN_ROOM" -> "게임방에 입장한 상태에서 시작할 수 있습니다.";
+									case "UNKNOWN_COMMAND" -> "현재 서버에서 게임 시작 요청을 처리하지 못했습니다.";
+									case "ROOM_FULL" -> "게임방의 정원이 찼습니다.";
+									case "ROOM_NOT_FOUND" -> "입장할 게임방을 찾을 수 없습니다.";
+									default -> null;
+									};
+
+									if (message != null) {
+										SwingUtilities.invokeLater(() -> {
+											if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
+												gameRoom.showStartGameFailure(message);
+											} else if ("ROOM_FULL".equals(errorCode)
+													|| "ROOM_NOT_FOUND".equals(errorCode)
+													|| "GAME_IN_PROGRESS".equals(errorCode)) {
+												JOptionPane.showMessageDialog(frame, message, "입장 실패",
+														JOptionPane.WARNING_MESSAGE);
+											}
+										});
+									}
+									continue;
+								}
+								boolean gameRoomMessage = switch (parts[0]) {
+								case "ROUND_START", "WORD", "WORD_LENGTH", "ROUND_TIME", "CORRECT_NOTIFY", "SCORES",
+										"ROUND_END", "ROUND_CANCEL", "GAME_END" ->
+									true;
+								default -> false;
+								};
+
+								if (gameRoomMessage) {
+									SwingUtilities.invokeLater(() -> {
+										if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
+											handleGameRoomMessage(gameRoom, parts);
+										}
+									});
+									continue;
+								}
+								if ("PLAYERS".equals(parts[0])) {
+									String[] players = Arrays.copyOfRange(parts, 1, parts.length);
+
+									SwingUtilities.invokeLater(() -> {
+										if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
+											gameRoom.updatePlayers(players);
+										}
+									});
+
+									continue;
+								}
 								if ("LOBBY_USERS".equals(parts[0])) {
 									String[] users = Arrays.copyOfRange(parts, 1, parts.length);
 
@@ -287,21 +456,34 @@ public class ClientMain {
 									String roomId = parts[1];
 
 									SwingUtilities.invokeLater(() -> {
-										GameRoomPanel gameRoom = new GameRoomPanel(roomId);
+										GameRoomPanel gameRoom = new GameRoomPanel(roomId, nickname);
 
-										gameRoom.setChatSender(body -> {
-										    try {
-										        return CompletableFuture.runAsync(() -> {
-										            try {
-										                writer.write("CHAT|" + body + "\n");
-										                writer.flush();
-										            } catch (IOException ex) {
-										                throw new CompletionException(ex);
-										            }
-										        }, chatSendExecutor);
-										    } catch (RejectedExecutionException ex) {
-										        return CompletableFuture.failedFuture(ex);
-										    }
+										Function<String, CompletableFuture<Void>> sendRoomCommand = command -> {
+											try {
+												return CompletableFuture.runAsync(() -> {
+													try {
+														writer.write(command + "\n");
+														writer.flush();
+													} catch (IOException ex) {
+														throw new CompletionException(ex);
+													}
+												}, chatSendExecutor);
+											} catch (RejectedExecutionException ex) {
+												return CompletableFuture.failedFuture(ex);
+											}
+										};
+
+										gameRoom.setChatSender(body -> sendRoomCommand.apply("CHAT|" + body));
+
+										gameRoom.setStartGameAction(() -> {
+											gameRoom.setStartGamePending(true);
+
+											sendRoomCommand.apply("START_GAME").whenComplete((result, error) -> {
+												if (error != null) {
+													SwingUtilities.invokeLater(() -> gameRoom
+															.showStartGameFailure("게임 시작 요청을 보내지 못했습니다."));
+												}
+											});
 										});
 										frame.setContentPane(gameRoom);
 										frame.setTitle("낙서한판 - 방 " + roomId);

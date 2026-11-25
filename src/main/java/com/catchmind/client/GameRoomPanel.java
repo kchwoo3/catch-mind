@@ -48,8 +48,12 @@ public class GameRoomPanel extends JPanel {
 	private final JLabel canvasNoticeLabel = new JLabel();
 	private final JPanel drawingTools;
 	private boolean waitingForGame = true;
+	private boolean startGamePending;
+	private int totalRounds;
 	private String currentDrawerNickname;
 	private int currentRoundNumber;
+	private int currentRoundId;
+	private String lastRoundAnswer = "—";
 	private Runnable startGameAction;
 	private Function<String, CompletableFuture<Void>> chatSender = body -> {
 	    System.out.println("CHAT|" + body);
@@ -60,8 +64,9 @@ public class GameRoomPanel extends JPanel {
 	    this.chatSender = chatSender;
 	}
 
-	public GameRoomPanel(String roomId) {
-	    this(roomId, "라운드 —", 0, new Object[0][0], "", "");
+	public GameRoomPanel(String roomId, String localNickname) {
+	    this(roomId, "라운드 —", 0, new Object[0][0], "", localNickname);
+	    setDrawingAllowed(false);
 	}
 
 	private GameRoomPanel(String roomId, String roundText, int remainingSeconds,
@@ -209,6 +214,28 @@ public class GameRoomPanel extends JPanel {
 		add(sidePanel, BorderLayout.EAST);
 	}
 	
+	void updatePlayers(String[] nicknames) {
+	    Map<String, Integer> currentScores = new HashMap<>();
+
+	    for (int row = 0; row < playerTable.getRowCount(); row++) {
+	        String nickname = (String) playerTable.getValueAt(row, 0);
+	        int score = (Integer) playerTable.getValueAt(row, 1);
+	        currentScores.put(nickname, score);
+	    }
+
+	    DefaultTableModel playerModel = (DefaultTableModel) playerTable.getModel();
+	    playerModel.setRowCount(0);
+
+	    for (String nickname : nicknames) {
+	        playerModel.addRow(new Object[] {
+	            nickname, currentScores.getOrDefault(nickname, 0), ""
+	        });
+	    }
+
+	    updatePlayerRoles();
+	    updateStartButton();
+	}
+	
 	void setStartGameAction(Runnable startGameAction) {
 	    this.startGameAction = startGameAction;
 	    updateStartButton();
@@ -218,9 +245,32 @@ public class GameRoomPanel extends JPanel {
 	    this.waitingForGame = waitingForGame;
 	    updateStartButton();
 	}
+	
+	void setStartGamePending(boolean startGamePending) {
+	    this.startGamePending = startGamePending;
+	    updateStartButton();
+	}
+
+	void handleGameStarted(int totalRounds) {
+	    this.totalRounds = totalRounds;
+	    startGamePending = false;
+	    setWaitingForGame(false);
+	    roundLabel.setText("라운드 — / " + this.totalRounds);
+	    appendSystemMessage("게임이 시작되었습니다.");
+	}
+
+	void showStartGameFailure(String message) {
+	    if (!startGamePending) {
+	        return;
+	    }
+
+	    setStartGamePending(false);
+	    appendSystemMessage(message);
+	}
 
 	private void updateStartButton() {
 	    boolean canStart = waitingForGame
+	            && !startGamePending
 	            && startGameAction != null
 	            && playerTable.getRowCount() >= 3
 	            && localNickname.equals(playerTable.getValueAt(0, 0));
@@ -236,9 +286,24 @@ public class GameRoomPanel extends JPanel {
 	    }
 	}
 	
+	void handleRoundStart(int roundId, int roundNumber, String drawerNickname, int roundSeconds) {
+	    if (waitingForGame || roundId <= currentRoundId || roundNumber < 1
+	            || roundNumber > totalRounds || drawerNickname.isBlank() || roundSeconds <= 0) {
+	        return;
+	    }
+
+	    currentRoundId = roundId;
+	    startRound(roundNumber, totalRounds, drawerNickname, roundSeconds);
+	}
+
+	boolean isCurrentRound(int roundId) {
+	    return !waitingForGame && currentDrawerNickname != null && currentRoundId == roundId;
+	}
+	
 	void startRound(int roundNumber, int totalRounds, String drawerNickname, int roundSeconds) {
 	    setWaitingForGame(false);
 	    currentRoundNumber = roundNumber;
+	    lastRoundAnswer = "—";
 	    currentDrawerNickname = drawerNickname;
 	    canvasNoticeLabel.setVisible(false);
 	    canvasPanel.clearDrawing();
@@ -250,7 +315,20 @@ public class GameRoomPanel extends JPanel {
 	    updatePlayerRoles();
 	}
 
+	boolean isGameInProgress() {
+	    return !waitingForGame;
+	}
+
+	void handleRoundEnd(String answer) {
+	    showRoundEnd(answer, currentRoundNumber == totalRounds ? 0 : 3);
+	}
+
+	void handleGameCompleted(List<FinalStanding> standings) {
+	    showGameCompleted(standings, lastRoundAnswer);
+	}
+	
 	void showRoundEnd(String answer, int transitionSeconds) {
+		lastRoundAnswer = answer;
 	    currentDrawerNickname = null;
 	    setDrawingAllowed(false);
 	    updatePlayerRoles();
