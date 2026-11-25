@@ -33,6 +33,7 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 
 public class GameRoomPanel extends JPanel {
@@ -48,6 +49,8 @@ public class GameRoomPanel extends JPanel {
 	private final JProgressBar timeBar;
 	private final DrawingPanel canvasPanel;
 	private final JLabel canvasNoticeLabel = new JLabel();
+	private final Timer gameStartNoticeTimer =
+	        new Timer(1500, event -> canvasNoticeLabel.setVisible(false));
 	private final JPanel drawingTools;
 	private boolean waitingForGame = true;
 	private boolean startGamePending;
@@ -74,6 +77,7 @@ public class GameRoomPanel extends JPanel {
 	private GameRoomPanel(String roomId, String roundText, int remainingSeconds,
 	        Object[][] players, String chatText, String localNickname) {
 	    super(new BorderLayout(14, 14));
+	    gameStartNoticeTimer.setRepeats(false);
 	    this.localNickname = localNickname;
 		setBackground(new Color(0xDDF3FF));
 		setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
@@ -137,6 +141,13 @@ public class GameRoomPanel extends JPanel {
 
 		String[] columns = { "닉네임", "점수", "역할" };
 		playerTable = new JTable(new DefaultTableModel(players, columns));
+		
+		DefaultTableCellRenderer nicknameRenderer = new DefaultTableCellRenderer();
+		playerTable.getColumnModel().getColumn(0).setCellRenderer(
+		        (table, value, selected, focused, row, column) ->
+		                nicknameRenderer.getTableCellRendererComponent(
+		                        table, localNickname.equals(value) ? value + " (나)" : value,
+		                        selected, focused, row, column));
 
 		if (playerTable.getRowCount() > 0) {
 		    playerTable.setValueAt("방장", 0, 2);
@@ -322,6 +333,9 @@ public class GameRoomPanel extends JPanel {
 	}
 	
 	void startRound(int roundNumber, int totalRounds, String drawerNickname, int roundSeconds) {
+	    boolean firstRound = currentRoundNumber == 0 && roundNumber == 1;
+	    gameStartNoticeTimer.stop();
+
 	    setWaitingForGame(false);
 	    currentRoundNumber = roundNumber;
 	    lastRoundAnswer = "—";
@@ -334,6 +348,12 @@ public class GameRoomPanel extends JPanel {
 	    timeBar.setMaximum(roundSeconds);
 	    updateRemainingTime(roundSeconds);
 	    updatePlayerRoles();
+
+	    if (firstRound) {
+	        canvasNoticeLabel.setText("게임이 시작되었습니다!");
+	        canvasNoticeLabel.setVisible(true);
+	        gameStartNoticeTimer.restart();
+	    }
 	}
 
 	boolean isGameInProgress() {
@@ -349,6 +369,7 @@ public class GameRoomPanel extends JPanel {
 	}
 	
 	void showRoundEnd(String answer, int transitionSeconds) {
+		gameStartNoticeTimer.stop();
 		lastRoundAnswer = answer;
 	    currentDrawerNickname = null;
 	    setDrawingAllowed(false);
@@ -380,6 +401,7 @@ public class GameRoomPanel extends JPanel {
 	}
 	
 	void showRoundCancelled(int transitionSeconds) {
+		gameStartNoticeTimer.stop();
 	    currentDrawerNickname = null;
 	    setDrawingAllowed(false);
 	    updatePlayerRoles();
@@ -460,6 +482,7 @@ public class GameRoomPanel extends JPanel {
 	}
 
 	private void returnToWaiting() {
+		gameStartNoticeTimer.stop();
 	    currentRoundNumber = 0;
 	    currentDrawerNickname = null;
 	    canvasNoticeLabel.setVisible(false);

@@ -254,7 +254,7 @@ public class ClientMain {
 								lobbyHeader.setBackground(new Color(0xDDF3FF));
 								lobbyHeader.setBorder(BorderFactory.createEmptyBorder(8, 14, 8, 14));
 								lobbyHeader.add(lobbyTitle, BorderLayout.WEST);
-								lobbyHeader.add(new JLabel(nickname + "님"), BorderLayout.EAST);
+								lobbyHeader.add(new JLabel("내 닉네임 : " + nickname), BorderLayout.EAST);
 								lobbyPanel.add(lobbyHeader, BorderLayout.NORTH);
 
 								JPanel roomsPanel = new JPanel(new BorderLayout(0, 8));
@@ -345,7 +345,7 @@ public class ClientMain {
 								lobbyPanel.add(lobbyButtons, BorderLayout.SOUTH);
 
 								frame.setContentPane(lobbyPanel);
-								frame.setTitle("낙서한판 대기실");
+								frame.setTitle("낙서한판 대기실 - " + nickname);
 								frame.setSize(1080, 660);
 								frame.setLocationRelativeTo(null);
 								frame.addWindowListener(new WindowAdapter() {
@@ -513,7 +513,7 @@ public class ClientMain {
 											});
 										});
 										frame.setContentPane(gameRoom);
-										frame.setTitle("낙서한판 - 방 " + roomId);
+										frame.setTitle("낙서한판 - 방 " + roomId + " - " + nickname);
 										frame.setSize(1080, 660);
 										frame.setLocationRelativeTo(null);
 										frame.revalidate();
