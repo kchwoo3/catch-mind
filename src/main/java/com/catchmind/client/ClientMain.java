@@ -211,6 +211,7 @@ public class ClientMain {
 
 				JList<RoomInfo> roomList = new JList<>();
 				JList<String> lobbyUserList = new JList<>();
+				JPanel lobbyPanel = new JPanel(new BorderLayout(14, 14));
 
 				JButton refreshButton = new JButton("새로고침");
 				refreshButton.setEnabled(false);
@@ -234,7 +235,6 @@ public class ClientMain {
 						System.out.println("서버 응답 = " + response);
 						if ("LOGIN_OK".equals(response)) {
 							SwingUtilities.invokeLater(() -> {
-								JPanel lobbyPanel = new JPanel(new BorderLayout(14, 14));
 								lobbyPanel.setBackground(new Color(0xDDF3FF));
 								lobbyPanel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
 
@@ -431,7 +431,11 @@ public class ClientMain {
 									if (message != null) {
 										SwingUtilities.invokeLater(() -> {
 											if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
-												gameRoom.showStartGameFailure(message);
+												if ("NOT_IN_ROOM".equals(errorCode) && gameRoom.isLeaveRoomPending()) {
+												    gameRoom.showLeaveRoomFailure("서버에서 현재 참가 중인 방을 찾지 못했습니다.");
+												} else {
+												    gameRoom.showStartGameFailure(message);
+												}
 											} else if ("ROOM_FULL".equals(errorCode)
 													|| "ROOM_NOT_FOUND".equals(errorCode)
 													|| "GAME_IN_PROGRESS".equals(errorCode)) {
@@ -473,6 +477,18 @@ public class ClientMain {
 									SwingUtilities.invokeLater(() -> lobbyUserList.setListData(users));
 									continue;
 								}
+								if ("LEAVE_OK".equals(parts[0]) && parts.length == 1) {
+								    SwingUtilities.invokeLater(() -> {
+								        if (frame.getContentPane() instanceof GameRoomPanel gameRoom
+								                && gameRoom.isLeaveRoomPending()) {
+								            frame.setContentPane(lobbyPanel);
+								            frame.setTitle("낙서한판 대기실 - " + nickname);
+								            frame.revalidate();
+								            frame.repaint();
+								        }
+								    });
+								    continue;
+								}
 								boolean enteringRoom = "ROOM_CREATED".equals(parts[0]) || "JOIN_OK".equals(parts[0]);
 								if (enteringRoom && parts.length == 2 && !parts[1].isBlank()) {
 									String roomId = parts[1];
@@ -512,6 +528,13 @@ public class ClientMain {
 												}
 											});
 										});
+										gameRoom.setLeaveRoomAction(() ->
+								        sendRoomCommand.apply("LEAVE_ROOM").whenComplete((result, error) -> {
+								            if (error != null) {
+								                SwingUtilities.invokeLater(() ->
+								                        gameRoom.showLeaveRoomFailure("방 나가기 요청을 보내지 못했습니다."));
+								            }
+								        }));
 										frame.setContentPane(gameRoom);
 										frame.setTitle("낙서한판 - 방 " + roomId + " - " + nickname);
 										frame.setSize(1080, 660);
@@ -542,6 +565,11 @@ public class ClientMain {
 							}
 
 							System.out.println("서버 연결이 종료됐습니다.");
+							SwingUtilities.invokeLater(() -> {
+							    if (frame.getContentPane() instanceof GameRoomPanel gameRoom) {
+							        gameRoom.showLeaveRoomFailure("응답을 받기 전에 서버 연결이 종료됐습니다.");
+							    }
+							});
 						} else {
 							SwingUtilities.invokeLater(() -> {
 								JOptionPane.showMessageDialog(frame, "로그인에 실패했습니다.");
@@ -550,7 +578,12 @@ public class ClientMain {
 					} catch (IOException ex) {
 						System.out.println("통신 실패 = " + ex.getMessage());
 						SwingUtilities.invokeLater(() -> {
-							JOptionPane.showMessageDialog(frame, "서버 통신에 실패했습니다.");
+							if (frame.getContentPane() instanceof GameRoomPanel gameRoom
+							        && gameRoom.isLeaveRoomPending()) {
+							    gameRoom.showLeaveRoomFailure("서버 통신에 실패해 방을 나가지 못했습니다.");
+							} else {
+							    JOptionPane.showMessageDialog(frame, "서버 통신에 실패했습니다.");
+							}
 						});
 					}
 				}).start();
