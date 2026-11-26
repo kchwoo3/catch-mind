@@ -360,26 +360,42 @@ public class GameRoomPanel extends JPanel {
 	    return !waitingForGame;
 	}
 
-	void handleRoundEnd(String answer) {
-	    showRoundEnd(answer, currentRoundNumber == totalRounds ? 0 : 3);
+	void handleRoundEnd(String reason, String answer) {
+	    int transitionSeconds = currentRoundNumber == totalRounds ? 0 : 3;
+	    showRoundEnd(answer, transitionSeconds, "TIMEOUT".equals(reason));
 	}
 
 	void handleGameCompleted(List<FinalStanding> standings) {
 	    showGameCompleted(standings, lastRoundAnswer);
 	}
 	
-	void showRoundEnd(String answer, int transitionSeconds) {
-		gameStartNoticeTimer.stop();
-		lastRoundAnswer = answer;
+	private void showRoundEnd(String answer, int transitionSeconds, boolean timedOut) {
+	    gameStartNoticeTimer.stop();
+	    lastRoundAnswer = answer;
 	    currentDrawerNickname = null;
 	    setDrawingAllowed(false);
 	    updatePlayerRoles();
 	    wordLabel.setText("정답 " + answer);
-	    timeLabel.setText("라운드 종료");
+	    timeLabel.setText(timedOut ? "시간 초과" : "라운드 종료");
 
-	    String notice = transitionSeconds > 0
-	            ? "라운드가 종료됐습니다. " + transitionSeconds + "초 후 다음 라운드가 시작됩니다."
-	            : "라운드가 종료됐습니다.";
+	    String notice = "라운드가 종료됐습니다.";
+
+	    if (timedOut) {
+	        notice = "시간이 초과됐습니다. 정답은 " + answer + "입니다.";
+	        appendSystemMessage(notice);
+
+	        if (transitionSeconds > 0) {
+	            String escapedNotice = notice.replace("&", "&amp;")
+	                    .replace("<", "&lt;")
+	                    .replace(">", "&gt;");
+
+	            notice = "<html><center>" + escapedNotice + "<br>"
+	                    + transitionSeconds + "초 후 다음 라운드가 시작됩니다."
+	                    + "</center></html>";
+	        }
+	    } else if (transitionSeconds > 0) {
+	        notice += " " + transitionSeconds + "초 후 다음 라운드가 시작됩니다.";
+	    }
 
 	    canvasNoticeLabel.setText(notice);
 	    canvasNoticeLabel.setVisible(true);
@@ -620,10 +636,10 @@ public class GameRoomPanel extends JPanel {
 
 				        if (roundNumber == totalRounds) {
 				            previewAbortButton.setEnabled(false);
-				            previewRoom.showRoundEnd(answer, 0);
+				            previewRoom.showRoundEnd(answer, 0, !allCorrect);
 				            previewRoom.showGameCompleted(previewRoom.buildPreviewStandings(), answer);
 				        } else {
-				            previewRoom.showRoundEnd(answer, 3);
+				        	previewRoom.showRoundEnd(answer, 3, !allCorrect);
 				            previewTransitionTimer.setActionCommand("next");
 				            previewTransitionTimer.restart();
 				        }
@@ -692,7 +708,7 @@ public class GameRoomPanel extends JPanel {
 			    }
 
 			    previewRoom.startRound(12, 12, "그림왕", 140);
-			    previewRoom.showRoundEnd("아이스크림", 0);
+			    previewRoom.showRoundEnd("아이스크림", 0, false);
 			    previewRoom.showGameCompleted(List.of(
 			            new FinalStanding("그림왕", 720, 1),
 			            new FinalStanding("스케치왕", 720, 1),

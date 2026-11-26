@@ -100,7 +100,7 @@ public class ClientMain {
 			gameRoom.showCorrectAnswer(parts[2], Integer.parseInt(parts[3]), Integer.parseInt(parts[4]));
 		case "ROUND_END" -> {
 			if ("ALL_CORRECT".equals(parts[2]) || "TIMEOUT".equals(parts[2])) {
-				gameRoom.handleRoundEnd(parts[3]);
+				gameRoom.handleRoundEnd(parts[2], parts[3]);
 			}
 		}
 		case "ROUND_CANCEL" -> {
