@@ -517,8 +517,7 @@ public class GameRoomPanel extends JPanel {
 
 	    updateScores(finalScores);
 	    returnToWaiting();
-	    JOptionPane.showMessageDialog(this, message.toString(), "최종 결과",
-	            JOptionPane.INFORMATION_MESSAGE);
+	    showGameEndNotice(message.toString(), "최종 결과", JOptionPane.INFORMATION_MESSAGE);
 	}
 	
 	void showGameAbortedForTooFewPlayers() {
@@ -526,9 +525,17 @@ public class GameRoomPanel extends JPanel {
 	    canvasPanel.clearDrawing();
 	    returnToWaiting();
 
-	    JOptionPane.showMessageDialog(this,
-	            "참가자가 2명 이하가 되어 이번 게임을 종료합니다.",
+	    showGameEndNotice("참가자가 2명 이하가 되어 이번 게임을 종료합니다.",
 	            "게임 종료", JOptionPane.WARNING_MESSAGE);
+	}
+
+	private void showGameEndNotice(String message, String title, int messageType) {
+	    if (leaveRoomPending) {
+	        appendSystemMessage(title + "\n" + message.stripTrailing());
+	        return;
+	    }
+
+	    JOptionPane.showMessageDialog(this, message, title, messageType);
 	}
 
 	private void returnToWaiting() {
