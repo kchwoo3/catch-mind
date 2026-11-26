@@ -12,6 +12,7 @@ import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -37,8 +38,9 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 
 public class GameRoomPanel extends JPanel {
-	record FinalStanding(String nickname, int score, int rank) {
-	}
+	record FinalStanding(String nickname, int score, int rank) {}
+	private record ScoreHighlight(int points, Timer timer) {}
+	private final Map<String, ScoreHighlight> scoreHighlights = new HashMap<>();
 	private final JTextArea chatHistory = new JTextArea();
 	private final JButton startGameButton = new JButton("게임 시작");
 	private final JButton leaveRoomButton = new JButton("방 나가기");
@@ -151,6 +153,27 @@ public class GameRoomPanel extends JPanel {
 		                nicknameRenderer.getTableCellRendererComponent(
 		                        table, localNickname.equals(value) ? value + " (나)" : value,
 		                        selected, focused, row, column));
+		
+		DefaultTableCellRenderer scoreRenderer = new DefaultTableCellRenderer();
+		DefaultTableCellRenderer highlightRenderer = new DefaultTableCellRenderer();
+		highlightRenderer.setBackground(new Color(0xFFF0B3));
+		highlightRenderer.setForeground(new Color(0x5A3C00));
+
+		playerTable.getColumnModel().getColumn(1).setCellRenderer(
+		        (table, value, selected, focused, row, column) -> {
+		            int modelRow = table.convertRowIndexToModel(row);
+		            String nickname = (String) table.getModel().getValueAt(modelRow, 0);
+		            ScoreHighlight highlight = scoreHighlights.get(nickname);
+
+		            if (highlight == null) {
+		                return scoreRenderer.getTableCellRendererComponent(
+		                        table, value, selected, focused, row, column);
+		            }
+
+		            String scoreText = value + " (+" + highlight.points() + ")";
+		            return highlightRenderer.getTableCellRendererComponent(
+		                    table, scoreText, selected, focused, row, column);
+		        });
 
 		if (playerTable.getRowCount() > 0) {
 		    playerTable.setValueAt("방장", 0, 2);
@@ -234,6 +257,14 @@ public class GameRoomPanel extends JPanel {
 	}
 	
 	void updatePlayers(String[] nicknames) {
+		List<String> activeNicknames = Arrays.asList(nicknames);
+		scoreHighlights.entrySet().removeIf(entry -> {
+		    if (activeNicknames.contains(entry.getKey())) {
+		        return false;
+		    }
+		    entry.getValue().timer().stop();
+		    return true;
+		});
 	    Map<String, Integer> currentScores = new HashMap<>();
 
 	    for (int row = 0; row < playerTable.getRowCount(); row++) {
@@ -383,6 +414,7 @@ public class GameRoomPanel extends JPanel {
 	}
 	
 	void startRound(int roundNumber, int totalRounds, String drawerNickname, int roundSeconds) {
+		clearScoreHighlights();
 	    boolean firstRound = currentRoundNumber == 0 && roundNumber == 1;
 	    gameStartNoticeTimer.stop();
 
@@ -451,6 +483,7 @@ public class GameRoomPanel extends JPanel {
 	}
 	
 	void showRoundCancelled(int transitionSeconds) {
+		clearScoreHighlights();
 		gameStartNoticeTimer.stop();
 	    currentDrawerNickname = null;
 	    setDrawingAllowed(false);
@@ -484,6 +517,35 @@ public class GameRoomPanel extends JPanel {
 	void showCorrectAnswer(String nickname, int rank, int earnedPoints) {
 	    appendSystemMessage(nickname + "님이 " + rank + "번째로 정답을 맞혔습니다. (+"
 	            + earnedPoints + "점)");
+
+	    ScoreHighlight previous = scoreHighlights.remove(nickname);
+	    if (previous != null) {
+	        previous.timer().stop();
+	    }
+
+	    Timer timer = new Timer(1500, event -> {
+	        scoreHighlights.remove(nickname);
+	        playerTable.repaint();
+	    });
+	    timer.setRepeats(false);
+
+	    scoreHighlights.put(nickname, new ScoreHighlight(earnedPoints, timer));
+	    timer.start();
+	    playerTable.repaint();
+	}
+
+	private void clearScoreHighlights() {
+	    for (ScoreHighlight highlight : scoreHighlights.values()) {
+	        highlight.timer().stop();
+	    }
+	    scoreHighlights.clear();
+	    playerTable.repaint();
+	}
+
+	@Override
+	public void removeNotify() {
+	    clearScoreHighlights();
+	    super.removeNotify();
 	}
 
 	void updateScores(Map<String, Integer> scores) {
@@ -539,6 +601,7 @@ public class GameRoomPanel extends JPanel {
 	}
 
 	private void returnToWaiting() {
+		clearScoreHighlights();
 		gameStartNoticeTimer.stop();
 	    currentRoundNumber = 0;
 	    currentDrawerNickname = null;
