@@ -31,6 +31,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -42,6 +43,8 @@ public class GameRoomPanel extends JPanel {
 	private final JTextArea chatHistory = new JTextArea();
 	private final JButton startGameButton = new JButton("게임 시작");
 	private final JButton leaveRoomButton = new JButton("방 나가기");
+	private final JToggleButton muteButton = new JToggleButton("소리 켜짐");
+	private GameAudio audio;
 	private Runnable leaveRoomAction;
 	private boolean leaveRoomPending;
 	private final String localNickname;
@@ -228,7 +231,13 @@ public class GameRoomPanel extends JPanel {
 		sidePanel.add(chatPanel, BorderLayout.CENTER);
 		leaveRoomButton.setEnabled(false);
 		leaveRoomButton.addActionListener(event -> requestLeaveRoom());
-		sidePanel.add(leaveRoomButton, BorderLayout.SOUTH);
+		muteButton.setEnabled(false);
+
+		JPanel roomButtons = new JPanel(new GridLayout(1, 2, 6, 0));
+		roomButtons.setOpaque(false);
+		roomButtons.add(muteButton);
+		roomButtons.add(leaveRoomButton);
+		sidePanel.add(roomButtons, BorderLayout.SOUTH);
 
 		add(sidePanel, BorderLayout.EAST);
 	}
@@ -302,9 +311,24 @@ public class GameRoomPanel extends JPanel {
 	    updateStartButton();
 	}
 
+	void setGameAudio(GameAudio audio) {
+	    this.audio = audio;
+	    audio.bindMuteButton(muteButton);
+	}
+
 	void setWaitingForGame(boolean waitingForGame) {
+	    boolean changed = this.waitingForGame != waitingForGame;
 	    this.waitingForGame = waitingForGame;
 	    updateStartButton();
+
+	    if (changed && audio != null) {
+	        if (waitingForGame) {
+	            audio.playLobbyMusic();
+	        } else {
+	            audio.playGameMusic();
+	        }
+	        audio.playNotice();
+	    }
 	}
 	
 	void setStartGamePending(boolean startGamePending) {
@@ -410,15 +434,16 @@ public class GameRoomPanel extends JPanel {
 	    return !waitingForGame;
 	}
 
-	void handleRoundEnd(String answer) {
-	    showRoundEnd(answer, currentRoundNumber == totalRounds ? 0 : 3);
+	void handleRoundEnd(String reason, String answer) {
+	    int transitionSeconds = currentRoundNumber == totalRounds ? 0 : 3;
+	    showRoundEnd(answer, transitionSeconds, "TIMEOUT".equals(reason));
 	}
 
 	void handleGameCompleted(List<FinalStanding> standings) {
 	    showGameCompleted(standings, lastRoundAnswer);
 	}
 	
-	void showRoundEnd(String answer, int transitionSeconds) {
+	private void showRoundEnd(String answer, int transitionSeconds, boolean timedOut) {
 		gameStartNoticeTimer.stop();
 		lastRoundAnswer = answer;
 	    currentDrawerNickname = null;
@@ -433,6 +458,9 @@ public class GameRoomPanel extends JPanel {
 
 	    canvasNoticeLabel.setText(notice);
 	    canvasNoticeLabel.setVisible(true);
+	    if (timedOut && transitionSeconds > 0 && audio != null) {
+	        audio.playNotice();
+	    }
 	}
 
 	private void updatePlayerRoles() {
@@ -462,6 +490,9 @@ public class GameRoomPanel extends JPanel {
 	    canvasNoticeLabel.setText("출제자가 퇴장했습니다. " + transitionSeconds
 	            + "초 후 다음 출제자로 넘어갑니다.");
 	    canvasNoticeLabel.setVisible(true);
+	    if (audio != null) {
+	        audio.playNotice();
+	    }
 	}
 	
 	void showWord(String word) {
@@ -482,6 +513,9 @@ public class GameRoomPanel extends JPanel {
 	}
 	
 	void showCorrectAnswer(String nickname, int rank, int earnedPoints) {
+		if (audio != null) {
+		    audio.playCorrect();
+		}
 	    appendSystemMessage(nickname + "님이 " + rank + "번째로 정답을 맞혔습니다. (+"
 	            + earnedPoints + "점)");
 	}
@@ -620,7 +654,9 @@ public class GameRoomPanel extends JPanel {
 				String previewNickname = selectedRole == 0 ? "그림왕" : "그림친구";
 				GameRoomPanel previewRoom =
 				        new GameRoomPanel("1", "라운드 —", 0, samplePlayers, sampleChat, previewNickname);
-
+				GameAudio previewAudio = new GameAudio();
+				previewRoom.setGameAudio(previewAudio);
+				previewAudio.playLobbyMusic();
 				previewRoom.setDrawingAllowed(false);
 				
 				int totalRounds = 12;
@@ -677,10 +713,10 @@ public class GameRoomPanel extends JPanel {
 
 				        if (roundNumber == totalRounds) {
 				            previewAbortButton.setEnabled(false);
-				            previewRoom.showRoundEnd(answer, 0);
+				            previewRoom.showRoundEnd(answer, 0, !allCorrect);
 				            previewRoom.showGameCompleted(previewRoom.buildPreviewStandings(), answer);
 				        } else {
-				            previewRoom.showRoundEnd(answer, 3);
+				        	previewRoom.showRoundEnd(answer, 3, !allCorrect);
 				            previewTransitionTimer.setActionCommand("next");
 				            previewTransitionTimer.restart();
 				        }
@@ -714,6 +750,7 @@ public class GameRoomPanel extends JPanel {
 				frame.addWindowListener(new WindowAdapter() {
 				    @Override
 				    public void windowClosed(WindowEvent event) {
+				    	previewAudio.close();
 				        previewTimer.stop();
 				        previewTransitionTimer.stop();
 				    }
@@ -749,7 +786,7 @@ public class GameRoomPanel extends JPanel {
 			    }
 
 			    previewRoom.startRound(12, 12, "그림왕", 140);
-			    previewRoom.showRoundEnd("아이스크림", 0);
+			    previewRoom.showRoundEnd("아이스크림", 0, false);
 			    previewRoom.showGameCompleted(List.of(
 			            new FinalStanding("그림왕", 720, 1),
 			            new FinalStanding("스케치왕", 720, 1),
