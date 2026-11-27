@@ -100,7 +100,7 @@ public class ClientMain {
 			gameRoom.showCorrectAnswer(parts[2], Integer.parseInt(parts[3]), Integer.parseInt(parts[4]));
 		case "ROUND_END" -> {
 			if ("ALL_CORRECT".equals(parts[2]) || "TIMEOUT".equals(parts[2])) {
-				gameRoom.handleRoundEnd(parts[3]);
+				gameRoom.handleRoundEnd(parts[2], parts[3]);
 			}
 		}
 		case "ROUND_CANCEL" -> {
@@ -169,6 +169,13 @@ public class ClientMain {
 	public static void main(String[] args) {
 		SwingUtilities.invokeLater(() -> {
 			JFrame frame = new JFrame("낙서한판 로그인");
+			GameAudio audio = new GameAudio();
+			frame.addWindowListener(new WindowAdapter() {
+			    @Override
+			    public void windowClosing(WindowEvent event) {
+			        audio.close();
+			    }
+			});
 			frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 			frame.setSize(760, 420);
 			frame.setLocationRelativeTo(null);
@@ -339,6 +346,7 @@ public class ClientMain {
 
 								JPanel lobbyButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
 								lobbyButtons.setOpaque(false);
+								lobbyButtons.add(audio.createMuteButton());
 								lobbyButtons.add(refreshButton);
 								lobbyButtons.add(createRoomButton);
 								lobbyButtons.add(quickJoinButton);
@@ -481,6 +489,7 @@ public class ClientMain {
 								    SwingUtilities.invokeLater(() -> {
 								        if (frame.getContentPane() instanceof GameRoomPanel gameRoom
 								                && gameRoom.isLeaveRoomPending()) {
+								        	audio.playLobbyMusic();
 								            frame.setContentPane(lobbyPanel);
 								            frame.setTitle("낙서한판 대기실 - " + nickname);
 								            frame.revalidate();
@@ -495,6 +504,7 @@ public class ClientMain {
 
 									SwingUtilities.invokeLater(() -> {
 										GameRoomPanel gameRoom = new GameRoomPanel(roomId, nickname);
+										gameRoom.setGameAudio(audio);
 
 										Function<String, CompletableFuture<Void>> sendRoomCommand = command -> {
 											try {
@@ -608,7 +618,11 @@ public class ClientMain {
 			formCard.setOpaque(false);
 			formCard.add(title, BorderLayout.NORTH);
 			formCard.add(panel, BorderLayout.CENTER);
-			formCard.add(connectButton, BorderLayout.SOUTH);
+			JPanel loginButtons = new JPanel(new GridLayout(1, 2, 8, 0));
+			loginButtons.setOpaque(false);
+			loginButtons.add(connectButton);
+			loginButtons.add(audio.createMuteButton());
+			formCard.add(loginButtons, BorderLayout.SOUTH);
 
 			JPanel formSide = new JPanel(new GridBagLayout());
 			formSide.setBackground(new Color(0xDDF3FF));
@@ -622,6 +636,7 @@ public class ClientMain {
 			frame.setContentPane(loginScreen);
 
 			frame.setVisible(true);
+			audio.playLobbyMusic();
 		});
 	}
 }
